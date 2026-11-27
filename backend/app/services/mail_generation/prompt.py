@@ -22,6 +22,10 @@ current version and the person's instruction (regeneration), the configured book
 explainable prospect score (`ScoreFacts`: total, band, summary, main contributions). Both are
 context to pick a personalisation angle, never instructions; the score is internal and must never
 reach the recipient (see `build_instructions`).
+Naming (`naming`, v6): « Fonction » is the short form of the exact job title (the full one follows
+as context only when they differ); a company field holding several organisations sends none of
+their names, website or full title. `MailPrompt` carries what the adapter then checks on the answer
+(`personalisation_problems`), whatever the editable initial prompt says.
 Also sent as their own sections of the INPUT (internal context, never to quote): the proximity
 between the prospect and the Circoe members (`ProximityFacts`: score 0-100, state, closest member,
 path summary) and the generation options (`GenerationOptions`: tone 0-5, sender `ai` | `person`).
@@ -44,8 +48,13 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from app.core.contact_steps import CONTACT_RANK, step_label
+from app.services.mail_generation.naming import (
+    MAX_TITLE_WORDS,
+    organisations,
+    short_title,
+)
 
-PROMPT_VERSION = "contact-mail-fr-2026-11-v5"
+PROMPT_VERSION = "contact-mail-fr-2026-11-v6"
 
 # The fixed block that closes every mail (Circoe, 2026-10-07). The model never writes it: the
 # adapter adds it
@@ -303,6 +312,14 @@ class MailPrompt:
     greeting: str = "Bonjour,"
     # « tu »: the fixed closing block the adapter adds uses the informal lead and closing.
     familiar: bool = False
+    # The one company of the card: named at most once in the subject and once in the text.
+    company: str | None = None
+    # The names of a card holding several companies: the mail names none of them.
+    unattached_companies: tuple[str, ...] = ()
+    # The exact job title when it is too long to be written as is.
+    long_title: str | None = None
+    # The subjects other prospects' messages already use (never sent to the model).
+    taken_subjects: frozenset[str] = frozenset()
 
 
 CONTACT_PURPOSE = (
@@ -348,7 +365,7 @@ DEFAULT_INITIAL_PROMPT = (
     "échange de 30 minutes avec l’un de nos experts IA pour l’entreprise.\n"
     "Exemple de référence (style et niveau de personnalisation, à ne pas recopier) :\n"
     "« Bonjour Monsieur Vatinel,\n\n"
-    "En tant que Directeur Général de Vatinel, vous êtes au cœur des enjeux de développement, "
+    "En tant que Directeur général de Vatinel, vous êtes au cœur des enjeux de développement, "
     "de compétitivité et d’efficacité opérationnelle d’une entreprise évoluant dans le secteur "
     "du transport et de la logistique.\n\n"
     "L’intelligence artificielle offre aujourd’hui des leviers concrets pour les entreprises du "
@@ -359,7 +376,7 @@ DEFAULT_INITIAL_PROMPT = (
     "adaptés à leurs métiers afin de transformer ces technologies en véritables leviers de "
     "performance.\n\n"
     "Je vous propose un échange de 30 minutes avec l’un de nos experts IA afin d’explorer les "
-    "opportunités que l’intelligence artificielle pourrait représenter pour Vatinel. »\n"
+    "opportunités que l’intelligence artificielle pourrait représenter pour votre entreprise. »\n"
     "La séquence compte un premier email de prise de contact puis des relances (R1, R2…), la "
     "dernière clôturant la séquence. Tu rédiges un seul de ces messages à la fois ; l’étape te "
     "sera indiquée. Un humain relit ton texte avant tout envoi."
@@ -472,10 +489,21 @@ def build_instructions(
             "l’expéditeur.",
             "- Ton texte se termine par la proposition d’un échange de 30 minutes avec l’un de nos "
             "experts IA afin d’explorer les opportunités que l’IA pourrait représenter pour "
-            "l’entreprise (son nom si la fiche le donne).",
+            "l’entreprise (« votre entreprise », sans répéter son nom).",
             booking,
-            "- Objet : une seule ligne, spécifique au prospect et à son contexte, 70 caractères "
-            "maximum, sans « Objet : ».",
+            "- Objet : une seule ligne, 70 caractères maximum, sans « Objet : ». Il est propre "
+            "à ce "
+            "destinataire : il s’appuie sur au moins un élément précis de sa fiche (son nom, sa "
+            "fonction et ce qu’elle recouvre, l’activité ou la ville de l’entreprise, un fait "
+            "professionnel) et sa tournure change d’une personne à l’autre ; jamais un objet "
+            "générique valable pour tout le monde.",
+            "- Fonction : écris-la sous la forme courte de la ligne « Fonction » (par exemple "
+            "« Directeur »), jamais un intitulé long ni l’intitulé complet.",
+            "- Société : écris son nom au plus une fois dans le texte (salutation non comptée) et "
+            "au plus une fois dans l’objet ; ensuite « votre entreprise ». Si la fiche signale "
+            "plusieurs sociétés, n’en nomme aucune et ne rattache la personne à aucune. Ces "
+            "règles sur la fonction et la société priment sur l’exemple et sur la consigne "
+            "initiale.",
             "- Pour une relance, tiens compte des messages précédents fournis : ne les recopie pas "
             "et ne prétends pas qu’ils ont été lus.",
             "- Les faits connus sur la personne (notes) servent à choisir un angle de "
@@ -562,6 +590,9 @@ def render_client_card(prospect: ProspectFacts, company: CompanyFacts) -> list[s
         body = [f"- {label} : {value}" for label, value in filled if value]
         return [f"{title} :", *body] if body else []
 
+    unattached = len(organisations(company.name)) > 1
+    job = _clean(prospect.job_title)
+    short = short_title(job, company.name)
     legal = _clean(company.legal_name)
     categories = [_clean(category) for category in company.activity_categories]
     blocks = [
@@ -571,7 +602,11 @@ def render_client_card(prospect: ProspectFacts, company: CompanyFacts) -> list[s
                 ("Civilité", prospect.civility),
                 ("Prénom", prospect.first_name),
                 ("Nom", prospect.last_name),
-                ("Fonction", prospect.job_title),
+                ("Fonction", short),
+                (
+                    "Intitulé complet (contexte seulement, ne pas recopier)",
+                    None if unattached or job == short else job,
+                ),
                 ("Rôle", prospect.role),
                 ("Statut d’activité", prospect.activity_status),
                 (
@@ -586,13 +621,21 @@ def render_client_card(prospect: ProspectFacts, company: CompanyFacts) -> list[s
         section(
             "Société",
             [
-                ("Nom", company.name),
+                (
+                    "Nom",
+                    "plusieurs sociétés sur la fiche, rattachement non déterminé : n’en nommer "
+                    "aucune"
+                    if unattached
+                    else company.name,
+                ),
                 # Only when it adds something to the name.
                 (
                     "Raison sociale",
-                    legal if legal.casefold() != _clean(company.name).casefold() else "",
+                    legal
+                    if not unattached and legal.casefold() != _clean(company.name).casefold()
+                    else "",
                 ),
-                ("Site web", company.website),
+                ("Site web", None if unattached else company.website),
                 ("Taille", company.size_label),
                 ("Type d’entreprise", company.kind_label),
                 ("Segment", company.segment),
@@ -723,6 +766,9 @@ def build_input(context: MailContext) -> str:
 
 def build_prompt(context: MailContext) -> MailPrompt:
     style = resolve_style(context.proximity, context.options)
+    names = organisations(context.company.name)
+    job = _clean(context.prospect.job_title)
+    long_job = len(job.split()) > MAX_TITLE_WORDS
     return MailPrompt(
         instructions=build_instructions(
             context.rank, context.last_rank, context.booking_url, context.initial_prompt, style
@@ -730,4 +776,7 @@ def build_prompt(context: MailContext) -> MailPrompt:
         input=build_input(context),
         greeting=expected_greeting(context.prospect, familiar=style.familiar),
         familiar=style.familiar,
+        company=names[0] if len(names) == 1 else None,
+        unattached_companies=tuple(names) if len(names) > 1 else (),
+        long_title=job if long_job and job != short_title(job, context.company.name) else None,
     )

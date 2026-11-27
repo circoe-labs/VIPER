@@ -36,6 +36,7 @@ import httpx2
 
 from app.core.config import Settings
 from app.services.errors import MailGenerationError
+from app.services.mail_generation.naming import count_mentions, fold
 from app.services.mail_generation.prompt import MailPrompt, mail_block
 
 logger = logging.getLogger(__name__)
@@ -241,6 +242,33 @@ def check_content(subject: str, body: str, prompt: MailPrompt) -> None:
         raise _invalid("The AI text holds a number the client card does not hold.")
 
 
+def personalisation_problems(subject: str, body: str, prompt: MailPrompt) -> list[str]:
+    """What the answer does against the subject and naming rules, in French for the rewrite
+    request. Checked in code: the editable initial prompt cannot lift them."""
+    problems = []
+    if fold(subject) in {fold(taken) for taken in prompt.taken_subjects}:
+        problems.append(
+            "Cet objet est déjà utilisé pour un autre destinataire : écris un objet différent, "
+            "propre à cette personne."
+        )
+    text = body.partition("\n")[2]  # the greeting may hold a name equal to the company's
+    for name in prompt.unattached_companies:
+        if count_mentions(f"{subject}\n{text}", name):
+            problems.append(
+                f"Ne nomme pas « {name} » : la fiche cite plusieurs sociétés, écris « votre "
+                "entreprise »."
+            )
+    company = prompt.company
+    if company and (count_mentions(subject, company) > 1 or count_mentions(text, company) > 1):
+        problems.append(
+            f"« {company} » est répété : une fois au plus dans l’objet et une fois au plus dans "
+            "le texte."
+        )
+    if prompt.long_title and count_mentions(f"{subject}\n{text}", prompt.long_title):
+        problems.append("N’écris pas l’intitulé de poste complet : utilise la forme courte.")
+    return problems
+
+
 def extract_output_text(payload: object) -> str:
     """The output text of a `/responses` answer; a refusal and an incomplete answer are typed."""
     if not isinstance(payload, dict):
@@ -337,7 +365,23 @@ class OpenAIMailGenerator:
                 }
             },
         }
-        return self._mail(self._post(request), prompt)
+        mail, problems = self._mail(self._post(request), prompt)
+        if not problems:
+            return mail
+        logger.info("mail_generation.rewrite problems=%s", len(problems))
+        correction = "\n".join(f"- {problem}" for problem in problems)
+        request["input"] = (
+            f"{prompt.input}\n\nTa réponse précédente (objet : « {mail.subject} ») est "
+            f"refusée. Réécris le message en corrigeant :\n{correction}"
+        )
+        mail, problems = self._mail(self._post(request), prompt)
+        if problems:
+            logger.warning("mail_generation.rewrite_failed problems=%s", len(problems))
+            raise _invalid(
+                "The AI text still breaks the subject or naming rules after a rewrite: nothing "
+                "was saved, try again."
+            )
+        return mail
 
     def structured(
         self, instructions: str, input_text: str, schema_name: str, schema: dict[str, Any]
@@ -445,7 +489,9 @@ class OpenAIMailGenerator:
             "ai_upstream_error", f"The AI service failed (HTTP {status}): nothing was saved."
         )
 
-    def _mail(self, response: httpx2.Response, prompt: MailPrompt) -> GeneratedMail:
+    def _mail(
+        self, response: httpx2.Response, prompt: MailPrompt
+    ) -> tuple[GeneratedMail, list[str]]:
         try:
             payload = response.json()
         except ValueError:
@@ -454,6 +500,7 @@ class OpenAIMailGenerator:
         # added after its text.
         subject, body = validate_output(extract_output_text(payload), booking_url=None)
         check_content(subject, body, prompt)
+        problems = personalisation_problems(subject, body, prompt)
         body = f"{body}\n\n{mail_block(self._booking_url, familiar=prompt.familiar)}"
         if len(body) > BODY_MAX_LENGTH:
             raise _invalid("The AI body is empty, too long or holds control characters.")
@@ -463,7 +510,7 @@ class OpenAIMailGenerator:
             if isinstance(answered, str) and answered.strip()
             else self._config.model
         )
-        return GeneratedMail(subject=subject, body=body, model=model)
+        return GeneratedMail(subject=subject, body=body, model=model), problems
 
 
 # --- « Tester la clé » (S8) --------------------------------------------------------------------

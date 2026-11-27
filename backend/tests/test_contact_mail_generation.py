@@ -171,6 +171,29 @@ def save(
 # --- the happy path ----------------------------------------------------------------------------
 
 
+def test_the_prompt_holds_the_other_prospects_subjects_to_avoid(
+    ai_app: FastAPI,
+    client: TestClient,
+    db_session: Session,
+    prospect: uuid.UUID,
+    fake: FakeGenerator,
+) -> None:
+    other = add_prospect(db_session, add_company(db_session, "Autre Co"))
+    db_session.add(ContactTracking(prospect_id=other.id, status=ContactTrackingStatus.NEUTRAL))
+    db_session.flush()
+    start_sequence(db_session, other)
+    save(db_session, other.id, subject="Objet déjà pris", body_text="Corps")
+
+    ok(generate(client, prospect), 201)
+    ok(generate(client, prospect, expected_revision=1, replace=True))
+
+    first, again = fake.prompts
+    assert first.taken_subjects == frozenset({"Objet déjà pris"})
+    # Its own saved subject is not « taken ».
+    assert again.taken_subjects == first.taken_subjects
+    assert "Objet déjà pris" not in first.input + first.instructions
+
+
 def test_a_generation_creates_a_draft_and_changes_no_state(
     ai_app: FastAPI,
     client: TestClient,

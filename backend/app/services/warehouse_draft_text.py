@@ -2,7 +2,15 @@
 
 import re
 import unicodedata
+import zlib
+from collections.abc import Collection
 
+from app.services.mail_generation.naming import (
+    fold,
+    short_title,
+    single_organisation,
+    title_segment,
+)
 from app.services.mail_generation.prompt import CONTACT_SIGNATURE, DIHNAMO_GOAL
 
 BOOKING_URL = "https://calendly.com/experts-circoe/30min"
@@ -51,16 +59,7 @@ def greeting(name: str) -> str:
     return f'Bonjour {title}{name},'
 
 
-def role_label(role: str | None) -> str | None:
-    if not role:
-        return None
-    label = re.split(r'\s*[–—,()]\s*|\s+-\s*|\s*-\s+(?=[A-Z])', role, maxsplit=1)[0]
-    label = re.split(r"\s+(?:de |d’|d')(?=[A-Z])|\s+(?:PR Logistics|EPH|FBL)\b", label, maxsplit=1)[0]
-    return ' '.join(label.split()).strip(' .') or None
-
-
-def introduction(role: str | None) -> str:
-    label = role_label(role)
+def introduction(label: str | None) -> str:
     context = f"dans vos fonctions de {label}" if label else "dans votre activité"
     return (
         f"Je souhaiterais mieux comprendre votre quotidien {context} et vos priorités. "
@@ -69,10 +68,10 @@ def introduction(role: str | None) -> str:
     )
 
 
-def other_introduction(role: str | None) -> str:
-    label = role_label(role)
-    normalized = ''.join(c for c in unicodedata.normalize('NFD', (label or '').casefold()) if not unicodedata.combining(c))
-    if not label:
+def other_introduction(role: str | None, label: str | None) -> str:
+    """The category is read from the recorded title; `label` is the function as written."""
+    normalized = fold(title_segment(role) or '')
+    if not normalized:
         return 'Je m’intéresse à l’organisation de votre activité au quotidien.'
     if 'commercial' in normalized:
         focus = 'vous jonglez sans doute entre le suivi des clients et les priorités commerciales.'
@@ -84,11 +83,13 @@ def other_introduction(role: str | None) -> str:
         focus = 'vous gardez la vue d’ensemble sur les priorités et l’organisation de l’activité.'
     else:
         focus = 'vous connaissez de près l’organisation de l’activité au quotidien.'
+    if not label:
+        return focus[0].upper() + focus[1:]
     return f'En tant que {label}, {focus}'
 
 
 def other_value_proposition(role: str | None) -> str:
-    label = ''.join(c for c in unicodedata.normalize('NFD', (role_label(role) or '').casefold()) if not unicodedata.combining(c))
+    label = ''.join(c for c in unicodedata.normalize('NFD', (title_segment(role) or '').casefold()) if not unicodedata.combining(c))
     if 'commercial' in label:
         return "Circo\u00e9 peut vous accompagner dans l\u2019analyse de vos processus commerciaux et l\u2019identification d\u2019outils num\u00e9riques adapt\u00e9s pour simplifier le suivi et le partage d\u2019informations."
     if 'transport' in label or 'affret' in label:
@@ -100,19 +101,66 @@ def other_value_proposition(role: str | None) -> str:
     return "Circo\u00e9 accompagne les entreprises dans l\u2019analyse de leurs processus et l\u2019int\u00e9gration d\u2019outils num\u00e9riques adapt\u00e9s \u00e0 leurs besoins."
 
 
-def draft_subject(role: str | None) -> str:
-    label = ''.join(c for c in unicodedata.normalize('NFD', (role_label(role) or '').casefold()) if not unicodedata.combining(c))
+# The subjects of the former template, one per kind of function: identical for every contact.
+LEGACY_SUBJECTS = frozenset(
+    f'Échangeons sur {topic}'
+    for topic in (
+        'vos priorités commerciales et le numérique',
+        'vos priorités en transport et le numérique',
+        'vos priorités logistiques et le numérique',
+        'vos projets de transformation numérique',
+        'vos projets et les outils numériques',
+    )
+)
+
+
+def _topics(role: str | None) -> tuple[str, ...]:
+    label = fold(title_segment(role) or '')
     if 'commercial' in label:
-        topic = 'vos priorités commerciales et le numérique'
-    elif 'transport' in label or 'affret' in label:
-        topic = 'vos priorités en transport et le numérique'
-    elif any(word in label for word in ('logistique', 'entrepot', 'exploitation', 'equipe')):
-        topic = 'vos priorités logistiques et le numérique'
-    elif any(word in label for word in ('direct', 'president', 'dirigeant', 'responsable')):
-        topic = 'vos projets de transformation numérique'
+        return ('vos priorités commerciales', 'le suivi de vos clients', 'vos outils commerciaux')
+    if 'transport' in label or 'affret' in label:
+        return ('vos priorités en transport', 'l’organisation de vos transports', 'vos flux de transport')
+    if any(word in label for word in ('logistique', 'entrepot', 'exploitation', 'equipe')):
+        return ('vos priorités logistiques', 'vos flux logistiques', 'vos outils logistiques')
+    if any(word in label for word in ('direct', 'president', 'dirigeant', 'responsable')):
+        return ('vos projets de transformation', 'le numérique pour vos équipes', 'vos priorités numériques')
+    return ('vos outils numériques', 'vos processus et le numérique', 'vos projets numériques')
+
+
+def draft_subject(
+    role: str | None,
+    warehouse: str,
+    contact_name: str,
+    taken: Collection[str] = (),
+    city: str | None = None,
+) -> str:
+    """A subject naming the company (else the town) and the contact's kind of work, never one of
+    `taken`. The starting variant depends on the contact, so neighbours read differently."""
+    topics = _topics(role)
+    who = single_organisation(warehouse)
+    if who:
+        frames = ('{who} : {topic}', '{Topic} chez {who}', 'Échange sur {topic} – {who}')
+    elif city and city.strip():
+        who = city.strip()
+        frames = ('{who} : {topic}', 'Échange sur {topic} – {who}', '{Topic}, secteur {who}')
     else:
-        topic = 'vos projets et les outils numériques'
-    return f'Échangeons sur {topic}'
+        frames = ('Un échange sur {topic} ?', '{Topic} : échangeons', '{Topic} : un point ensemble ?')
+    candidates = [
+        frame.format(who=who, topic=topic, Topic=topic[0].upper() + topic[1:])
+        for frame in frames
+        for topic in topics
+    ]
+    start = zlib.crc32(f'{contact_name}|{warehouse}'.encode()) % len(candidates)
+    used = {fold(subject) for subject in taken}
+    for subject in candidates[start:] + candidates[:start]:
+        if fold(subject) not in used:
+            return subject
+    # Every variant is taken (many contacts of one company): only the name still tells them apart.
+    base = f'{candidates[start]} – {contact_name}'
+    subject, number = base, 2
+    while fold(subject) in used:
+        subject, number = f'{base} {number}', number + 1
+    return subject
 
 
 _STOP_WORDS = {'de', 'du', 'des', 'la', 'le', 'les', 'et', 'en', 'au', 'aux', 'un', 'une', 'chez'}
@@ -127,32 +175,59 @@ def mentions_role(body: str, role: str | None) -> bool:
     """The message names the contact's function. Lenient on purpose: a person may reword it ("Direction
     d'entrepôt" for "Direction de l'entrepôt") or drop a trailing company name, so most of the significant
     words (at least 60 %) must appear somewhere in the text."""
-    label = role_label(role)
+    label = title_segment(role)
     wanted = _words(label or '')
     if not wanted:
         return False
     return len(wanted & _words(body)) >= -(-len(wanted) * 3 // 5)
 
 
-def company_name(warehouse: str) -> str:
-    """Keep the organization name when the site label also contains a location."""
-    return re.split(r'\s+[–—-]\s+', warehouse, maxsplit=1)[0].strip()
+def opening_line(warehouse: str, category: str | None) -> str:
+    """The first sentence. A label holding several companies names none of them."""
+    company = single_organisation(warehouse)
+    return _opening_sentence(f' chez {company}' if company else '', category)
+
+
+def _opening_sentence(at: str, category: str | None) -> str:
+    start = 'Je vous contacte' if category == 'sme' else 'Je me permets de vous écrire'
+    return f'{start} au sujet de votre activité{at}.'
 
 
 def draft_text(name: str, warehouse: str, role: str | None, category: str | None = None) -> str:
-    opening = introduction(role) if category == 'sme' else other_introduction(role) + '\n\n' + other_value_proposition(role)
+    label = short_title(role, warehouse)
+    opening = introduction(label) if category == 'sme' else other_introduction(role, label) + '\n\n' + other_value_proposition(role)
     opportunity = f"{WAREHOUSE_DIHNAMO}\n\n" if category == 'sme' else ''
     invitation = "Seriez-vous disponible 30 minutes pour en parler ? Vous pouvez choisir un créneau ici :" if category == 'sme' else "Seriez-vous ouvert à un échange de 30 minutes ? Vous pouvez choisir un créneau ici :"
-    subject_line = f"Je vous contacte au sujet de votre activité chez {company_name(warehouse)}." if category == 'sme' else f"Je me permets de vous écrire au sujet de votre activité chez {company_name(warehouse)}."
     text = (
         f"{greeting(name)}\n\n"
-        f"{subject_line}\n\n"
+        f"{opening_line(warehouse, category)}\n\n"
         f"{opening}\n\n"
         f"{opportunity}"
         f"{invitation}\n{BOOKING_URL}\n\n"
         f"Au plaisir de vous rencontrer,\n\n{CONTACT_SIGNATURE.replace('CIRCOE', 'Circoé')}"
     )
     return apply_category(without_parentheses(text), category)
+
+
+def rewrite_body(body: str, warehouse: str, role: str | None) -> str:
+    """Replace only the sentences the former template generated from the site label (cut at its
+    first dash) and the title's first segment; every other character is kept."""
+    old = title_segment(role)
+    new = short_title(role, warehouse)
+    former_company = re.split(r'\s+[–—-]\s+', warehouse, maxsplit=1)[0].strip()
+    changes = [
+        (_opening_sentence(f' chez {former_company}', category), opening_line(warehouse, category))
+        for category in ('sme', 'other')
+    ]
+    if old and old != new:
+        context = f'dans vos fonctions de {new}' if new else 'dans votre activité'
+        changes += [
+            (f'dans vos fonctions de {old} et vos priorités', f'{context} et vos priorités'),
+            (other_introduction(role, old), other_introduction(role, new)),
+        ]
+    for former, current in changes:
+        body = body.replace(without_parentheses(former), without_parentheses(current))
+    return body
 
 
 def without_parentheses(text: str) -> str:

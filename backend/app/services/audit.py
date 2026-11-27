@@ -96,6 +96,7 @@ class AuditAction(StrEnum):
     WAREHOUSE_DRAFT_UNSCHEDULED = "warehouse_draft.unscheduled"
     WAREHOUSE_DRAFT_SENT = "warehouse_draft.sent"
     WAREHOUSE_DRAFT_FAILED = "warehouse_draft.failed"
+    WAREHOUSE_DRAFT_REWRITTEN = "warehouse_draft.rewritten"
     PROSPECT_COMPANY_CHANGED = "prospect.company_changed"
     PROSPECT_DO_NOT_CONTACT_SET = "prospect.do_not_contact.set"
     PROSPECT_DO_NOT_CONTACT_CLEARED = "prospect.do_not_contact.cleared"

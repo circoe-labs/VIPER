@@ -283,6 +283,7 @@ def save_warehouse(
                     session, actor, 'warehouse_draft.updated', entity_type='warehouse_draft',
                     entity_id=draft.id, reason='Adaptation DIHNAMO à la catégorie de l’entrepôt.',
                 )
+    taken: set[str] | None = None
     for contact in data.contacts:
         if not contact.to_contact:
             continue
@@ -299,12 +300,16 @@ def save_warehouse(
         # Existing drafts may have been edited; never replace or duplicate them on reselection.
         if existing:
             continue
+        if taken is None:
+            taken = set(session.scalars(select(WarehouseDraft.subject)))
         for recipient in addresses or [None]:
+            subject = draft_subject(contact.role, row.name, contact.full_name, taken, row.city)
+            taken.add(subject)
             draft = WarehouseDraft(
                 warehouse_id=row.id, warehouse_name=row.name, phase=2,
                 contact_name=contact.full_name, contact_role=contact.role,
                 source_email=contact.email, recipient=recipient,
-                subject=draft_subject(contact.role),
+                subject=subject,
                 body=draft_text(contact.full_name, row.name, contact.role, data.prospecting_category),
                 review_note="Simulation à relire : vérifiez le destinataire, la fonction et le texte.",
             )

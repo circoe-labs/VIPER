@@ -23,6 +23,12 @@ counts. It uses the token file of the API (`VIPER_TOOLBOX_TOKEN_STORE_PATH`): co
 Settings page first. Exit code 1 when the Toolbox is disabled, not configured, not connected, or
 the pass was stopped by the connection (`blocked`).
 
+`warehouse-drafts-rewrite` brings the unsent, never hand-edited warehouse drafts to the current
+wording (own subject, short job title, no company picked from several). It only prints what it would
+change; `--apply` writes it. A rewritten draft loses its validation and its programming (it keeps
+its proposed date). It also counts the unsent AI messages sharing a subject, which it never changes
+(regenerate them in the Contact page).
+
 `contact-dispatch --once` runs one pass of the scheduled sending (S7) — the pass the API's worker
 runs every `VIPER_CONTACT_DISPATCH_INTERVAL_MS` — and prints its counts; same Toolbox requirements
 and exit code as `toolbox-cleanup`. `contact-dispatch --hold-scheduled` puts every scheduled,
@@ -44,7 +50,12 @@ from app.core.config import Settings, get_settings
 from app.core.logs import configure_logging
 from app.db.session import create_db_engine, create_session_factory
 from app.models.enums import AgentMode, AgentProvider
-from app.services import contact_dispatch, mcp_tokens, warehouse_discovery
+from app.services import (
+    contact_dispatch,
+    mcp_tokens,
+    warehouse_discovery,
+    warehouse_draft_rewrite,
+)
 from app.services.audit import attributed_unit_of_work
 from app.services.auth import create_or_reset_user
 from app.services.contact_dispatch import DispatchConfig, Dispatcher
@@ -164,6 +175,12 @@ def backfill_warehouses(session_factory: sessionmaker[Session], args: argparse.N
     return "\n".join(output)
 
 
+def rewrite_warehouse_drafts(session_factory: sessionmaker[Session], apply: bool) -> str:
+    with attributed_unit_of_work(session_factory, CLI_ACTOR) as session:
+        report = warehouse_draft_rewrite.rewrite(session, CLI_ACTOR, apply=apply)
+    return report.render(apply)
+
+
 def create_agent_token(session_factory: sessionmaker[Session], args: argparse.Namespace) -> str:
     scopes = [value.strip() for value in str(args.scopes).split(",") if value.strip()]
     mode = AgentMode(args.mode)
@@ -264,6 +281,11 @@ def main(
     cleanup.add_argument(
         "--once", action="store_true", required=True, help="one pass, then exit (no loop)"
     )
+    rewrite = commands.add_parser(
+        "warehouse-drafts-rewrite",
+        help="new wording for unsent, never hand-edited warehouse drafts (dry run by default)",
+    )
+    rewrite.add_argument("--apply", action="store_true", help="write the changes")
     dispatch = commands.add_parser(
         "contact-dispatch", help="scheduled sending of Contact messages (one pass, or hold all)"
     )
@@ -297,6 +319,8 @@ def main(
                     session_factory, toolbox or ToolboxIntegration(settings), settings
                 )
             )
+        elif args.command == "warehouse-drafts-rewrite":
+            print(rewrite_warehouse_drafts(session_factory, args.apply))
         elif args.command == "toolbox-cleanup":
             print(toolbox_cleanup(session_factory, toolbox or ToolboxIntegration(settings)))
         else:

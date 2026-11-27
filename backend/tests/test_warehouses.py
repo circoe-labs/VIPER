@@ -115,7 +115,8 @@ def test_new_selections_create_one_draft_per_address(client: TestClient) -> None
     assert drafts[0]['phase'] == 2
     assert drafts[0]['contact_name'] == 'Anne Test'
     assert drafts[0]['recipient'] == 'anne@example.test'
-    assert drafts[0]['subject'] == 'Échangeons sur vos priorités logistiques et le numérique'
+    assert 'Site Exemple' in drafts[0]['subject']
+    assert len({draft['subject'] for draft in drafts}) == 3
     assert 'Anne Test' in drafts[0]['body']
     assert drafts[0]['body'].startswith('Bonjour Madame Anne Test,\n\n')
     assert 'Site Exemple' in drafts[0]['body']
@@ -132,7 +133,6 @@ def test_new_selections_create_one_draft_per_address(client: TestClient) -> None
     assert {draft['recipient'] for draft in drafts if draft['contact_name'] == 'Jean Test'} == {
         'a@example.test', 'b@example.test',
     }
-    assert all(draft['subject'] == 'Échangeons sur vos projets et les outils numériques' for draft in drafts if draft['contact_name'] == 'Jean Test')
     site = response.json()
     site['contacts'][0]['to_contact'] = False
     site = client.put(f"/api/warehouses/{site['id']}", json=site).json()
@@ -634,11 +634,10 @@ def test_other_and_unclassified_drafts_have_specific_openings_without_dihnamo() 
 
 
 def test_draft_uses_company_name_without_site_location() -> None:
-    from app.services.warehouse_draft_text import company_name, draft_text
+    from app.services.warehouse_draft_text import draft_text
 
     label = 'Entreposage Havrais – Allée de la Plaine'
     body = draft_text('Anne Test', label, 'Coordinatrice logistique', 'sme')
-    assert company_name(label) == 'Entreposage Havrais'
     assert 'Entreposage Havrais' in body
     assert 'Allée de la Plaine' not in body
     assert 'Coordinatrice logistique' in body

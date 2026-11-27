@@ -21,7 +21,7 @@ import logging
 import time
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from http import HTTPStatus
 from typing import Self
 
@@ -368,7 +368,7 @@ def prepare(
             "The message already has a text: confirm that the AI draft replaces it.",
         )
     instruction = (request.instruction or "").strip() or None
-    return build_prompt(
+    prompt = build_prompt(
         load_context(
             session,
             prospect_id,
@@ -381,6 +381,21 @@ def prepare(
             initial_prompt=initial_prompt,
             options=request.options,
             commercial_state=context.state,
+        )
+    )
+    return replace(prompt, taken_subjects=_taken_subjects(session, prospect_id))
+
+
+def _taken_subjects(session: Session, prospect_id: uuid.UUID) -> frozenset[str]:
+    """The subjects of the other prospects' messages (cancelled ones excluded): a new one differs
+    from all of them. Two drafts generated at the same instant are not compared to each other."""
+    return frozenset(
+        session.scalars(
+            select(ContactMessage.subject).where(
+                ContactMessage.prospect_id != prospect_id,
+                ContactMessage.status != ContactMessageStatus.CANCELLED,
+                ContactMessage.subject != "",
+            )
         )
     )
 

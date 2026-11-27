@@ -106,6 +106,26 @@ The group action sets the same proposed date on all eligible drafts; it does not
 The server checks every revision under lock and commits the whole batch or none of it. Editing a
 preprogrammed draft retains its proposed date. A fresh group plan clears previous validations.
 
+### Generated wording
+
+`services/warehouse_draft_text.py` writes each draft; the naming rules are those of `mail_generation/naming.py`
+(`contact.md`, *Subjects and naming*).
+- *Subject*: names the company (the site label before its first dash), else the town, and a topic from the kind of
+  function; the variant depends on the contact and is never one another warehouse draft already uses (the contact's name
+  is appended only once every variant is taken).
+- *Several companies* in the site label: neither the subject nor the text names one (« au sujet de votre activité »).
+- *Function*: short form (« Directeur » for a long title); a company name inside the title is dropped.
+
+Existing drafts are repaired by an operator command, from `backend/`:
+
+    python -m app.cli warehouse-drafts-rewrite           # dry run: lists the changes, writes nothing
+    python -m app.cli warehouse-drafts-rewrite --apply
+
+It replaces only text the former template generated (its five fixed subjects, the company sentence, the sentences
+holding the long title). Drafts being sent, uncertain or sent, and drafts saved by hand from the editor, are never
+touched. A changed draft loses its validation and programming (it keeps its proposed date) and is audited
+`warehouse_draft.rewritten`. Running it again changes nothing.
+
 ## Workbook import
 
 Authenticated, CSRF-protected endpoints:
