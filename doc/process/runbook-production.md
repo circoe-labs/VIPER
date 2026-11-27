@@ -192,7 +192,8 @@ Facts to account for:
 - **Scheduled Contact messages after a restore** (S7): a backup taken before a send restores that message as
   « Programmé » — started as is, the dispatcher would send it again. Before starting the API on a restored database:
   `python -m app.cli contact-dispatch --hold-scheduled` (every scheduled, unclaimed message back to « Validé »,
-  `dispatch_held`, audited); claimed ones are listed for a person to settle. People then reschedule what must leave.
+  `dispatch_held`, audited); claimed ones are listed for a person to settle. The messages put back may already have
+  left: people check the Infomaniak sent items (Contact › « Envois à reprendre »), then reschedule what must leave.
   Since the sending is on by default (S9), start the API with `VIPER_CONTACT_DISPATCH_ENABLED=false` (or the
   Toolbox disconnected) until it is done, then switch it back on in Paramètres › Connexions. VIPER has no restore command of its own.
 

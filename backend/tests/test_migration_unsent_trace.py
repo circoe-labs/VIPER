@@ -88,7 +88,7 @@ def test_0061_backfills_the_unsent_messages_and_downgrades(
         stamps = text("SELECT id, updated_at FROM contact_messages")
         before = dict(connection.execute(stamps).tuples().all())
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0061")  # this revision alone: 0062 cancels the R3
 
     with engine.connect() as connection:
         rows = {

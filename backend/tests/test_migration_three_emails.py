@@ -3,6 +3,7 @@ their reason (remote draft queued for deletion, a send moment kept in the trace)
 claimed message are left alone, and « max relances » above 2 is lowered."""
 
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 from alembic import command
@@ -55,7 +56,7 @@ def _message(
 def test_0062_cancels_the_unsent_steps_beyond_r2(engine: Engine, migration_database: str) -> None:
     config = alembic_config(migration_database)
     command.downgrade(config, "0061")
-    ids: dict[str, object] = {}
+    ids: dict[str, Any] = {}
     with engine.begin() as connection:
         connection.execute(
             text("INSERT INTO app_settings (key, value) VALUES ('contact.max_follow_ups', '4')")
@@ -64,6 +65,7 @@ def test_0062_cancels_the_unsent_steps_beyond_r2(engine: Engine, migration_datab
             ("Alpha", {"r2": (2, "scheduled"), "r3": (3, "scheduled"), "r4": (4, "draft")}),
             ("Bravo", {"old_send": (3, "sent"), "validated": (4, "validated")}),
             ("Charlie", {"claimed": (3, "claimed")}),
+            ("Delta", {"lost": (3, "scheduled"), "doubtful": (4, "validated")}),
         ):
             prospect = connection.execute(
                 text("INSERT INTO prospects (last_name) VALUES (:n) RETURNING id"), {"n": name}
@@ -80,6 +82,18 @@ def test_0062_cancels_the_unsent_steps_beyond_r2(engine: Engine, migration_datab
                     ),
                     {"d": f"draft-{key}", "i": ids[key]},
                 )
+
+        connection.execute(
+            text("UPDATE contact_messages SET draft_check = 'missing' WHERE id = :i"),
+            {"i": ids["lost"]},
+        )
+        connection.execute(
+            text(
+                "UPDATE contact_messages SET sent_doubt_reason = 'send_not_confirmed', "
+                "sent_doubt_at = '2026-09-01T08:00:00+00:00' WHERE id = :i"
+            ),
+            {"i": ids["doubtful"]},
+        )
 
     command.upgrade(config, "head")
 
@@ -116,8 +130,17 @@ def test_0062_cancels_the_unsent_steps_beyond_r2(engine: Engine, migration_datab
     assert (rows[ids["r2"]].status, rows[ids["r2"]].remote_draft_id) == ("scheduled", "draft-r2")
     assert rows[ids["old_send"]].status == "sent"
     assert rows[ids["claimed"]].status == "scheduled"
-    assert queued == {"draft-r3": "cancelled", "draft-validated": "cancelled"}
-    assert {row.entity_id for row in audited} == {ids["r3"], ids["r4"], ids["validated"]}
+    cancelled = ("r3", "r4", "validated", "lost", "doubtful")
+    assert queued == {f"draft-{key}": "cancelled" for key in cancelled if key != "r4"}
+    assert {row.entity_id for row in audited} == {ids[key] for key in cancelled}
+    # « May have left » survives the cancellation: raised for a scheduled mail whose draft was
+    # gone, kept (first reason and moment) when it was already there, not invented otherwise.
+    assert rows[ids["lost"]].sent_doubt_reason == "draft_missing"
+    assert rows[ids["lost"]].sent_doubt_at is not None
+    kept = rows[ids["doubtful"]]
+    assert (kept.status, kept.sent_doubt_reason) == ("cancelled", "send_not_confirmed")
+    assert kept.sent_doubt_at.isoformat().startswith("2026-09-01")
+    assert rows[ids["r3"]].sent_doubt_reason is None
     # The lists say it: a cancelled scheduled R3 is « annulé » with its reason.
     with Session(engine) as session:
         sent_state = contact_send_state.send_situations(session, [ids["Bravo.prospect"]])

@@ -896,7 +896,7 @@ Both: a person only (403 `human_actor_required`), 404 `not_found` / `message_not
 | `send_marked_by_person` / `send_released_by_person` | sent / validated | a person settled it |
 | `dispatch_overdue` | validated | more late than the max lateness, not sent |
 | `send_missing_recipients`, `send_recipient_not_allowed`, `send_previous_step_pending`, `send_draft_not_created` | validated | refused before any send |
-| `dispatch_held` | validated | scheduling withdrawn by `contact-dispatch --hold-scheduled` (after a restore) |
+| `dispatch_held` | validated | scheduling withdrawn by `contact-dispatch --hold-scheduled` (after a restore); may have left: sent-items check before a new schedule |
 | `dispatch_internal_error` | (log only, as the unknown outcome) | unexpected exception during the send |
 
 `toolbox_*` codes stay the Infomaniak draft's (S6, `remoteDraftLine`); the UI never reads a `send_*` code as a
@@ -916,7 +916,8 @@ VIPER has no restore command: backups are `pg_dump` (runbook). A backup taken be
 « Programmé »; started as is, the dispatcher would send it again (within the 6 h lateness window). The runbook
 requires `python -m app.cli contact-dispatch --hold-scheduled` before starting the API on a restored database: every
 scheduled, unclaimed message goes back to Validé (`dispatch_held`, audited `contact_message.unscheduled` by the CLI
-actor); claimed ones are counted for a person to settle.
+actor); claimed ones are counted for a person to settle. The messages put back may have left (the backup predates
+what happened since): each carries the sent-items doubt (`dispatch_held`), so a new schedule asks for the check.
 
 ## Effective schedule, unsent sends and their recovery
 
@@ -936,8 +937,10 @@ Kept through edits and revalidation; cleared by a new schedule or a recorded sen
 audit log (and the doubt from every event that ever took a send moment away, `updated_at` untouched).
 
 **Sent-items doubt** (`sent_doubt_reason`, `sent_doubt_at`): the mail **may have left**. Raised by a send moment lost
-to `send_not_confirmed`, `send_draft_not_found` or `send_probably_sent`, and by a scheduled message whose draft the
-check does not find (`draft_missing`; a draft sent by hand from Infomaniak disappears too). It is durable: edit, AI
+to `send_not_confirmed`, `send_draft_not_found`, `send_probably_sent` or `dispatch_held` (`--hold-scheduled`), and by a
+scheduled message whose draft the check does not find (`draft_missing`; a draft sent by hand from Infomaniak disappears
+too), whatever takes its schedule away (a cancellation, a change of the recipient's address, migration 0062 included).
+A mail beyond R2 can only be confirmed not sent (nothing is scheduled or recorded as sent after R2). It is durable: edit, AI
 redraft, restored version, unschedule, cancellation, reopening and change of contact week keep it. Only a person's word
 clears it (confirmed schedule, new draft or deletion, « Remettre en Validé », « Confirmer sans reprogrammer ») or a
 recorded send. Every schedule path (editor, series, bulk) refuses 409 `sent_check_required` without

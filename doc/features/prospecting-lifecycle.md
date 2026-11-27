@@ -45,6 +45,7 @@ opposition, une exclusion, une archive ni un départ.
 - Les mêmes annulations suivent un départ saisi par l'éditeur, une revue d'agent, un import, un changement
   d'entreprise ou l'explorateur.
 - Réintégrer ne reprogramme rien.
+- Une annulation garde le doute « peut-être parti » d'un message (`contact.md` § Effective schedule).
 - Rien n'est supprimé : `prospecting_holds` garde qui a retiré et réintégré, quand et pourquoi ; l'historique des
   fiches le montre.
 
@@ -60,5 +61,6 @@ opposition, une exclusion, une archive ni un départ.
 
 Quand l'adresse principale change, ou qu'une adresse est modifiée, désactivée ou retirée (éditeur ou explorateur),
 les messages non envoyés suivent : la nouvelle principale remplace l'ancienne ; un message validé ou programmé
-redevient brouillon (`recipient_changed`, créneau gardé en trace, brouillon Infomaniak supprimé). Le choix d'une
+redevient brouillon (`recipient_changed`, créneau gardé en trace, brouillon Infomaniak supprimé, doute « peut-être
+parti » conservé ou levé si le brouillon programmé était introuvable ; l'éditeur le dit au-dessus de l'objet). Le choix d'une
 autre adresse toujours active est conservé.

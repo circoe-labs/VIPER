@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Prospect, ProspectingHold, Warehouse, WarehouseDraft
 from app.models.enums import ActivityStatus, ContactabilityStatus, ContactMessageStatus
+from app.services.contact_draft_check import check_scheduled_drafts
 from app.services.warehouse_dispatch import dispatch_warehouses
 from tests.builders import add_company, add_email, add_prospect, start_sequence
 from tests.fake_toolbox import FakeToolbox
@@ -412,3 +413,35 @@ def test_a_departed_person_can_still_have_a_real_send_recorded(
     db_session.commit()
     act(client, "prospects", found.id, "depart", departure_reason="other")
     ok(client.post(f"{messages(found.id)}/mark-sent", json={"rank": 0}), 201)
+
+
+@pytest.mark.parametrize("change", ["address", "archive"])
+def test_a_lost_draft_keeps_the_may_have_left_doubt_through_an_automatic_change(
+    connected: TestClient, toolbox_app: FastAPI, fake: FakeToolbox, db_session: Session, change: str
+) -> None:
+    prospect, (one, two) = with_two_addresses(connected, db_session)
+    message = scheduled(connected, prospect)
+    del fake.drafts[str(row(db_session, message["id"]).remote_draft_id)]  # sent by hand
+    check_scheduled_drafts(toolbox_app.state.session_factory, toolbox_of(toolbox_app))
+
+    if change == "address":
+        save(connected, prospect, [alias(one, is_primary=False), alias(two, is_primary=True)])
+    else:
+        act(connected, "prospects", prospect, "archive")
+        act(connected, "prospects", prospect, "unarchive")
+
+    after = row(db_session, message["id"])
+    assert after.status is (M.DRAFT if change == "address" else M.CANCELLED)
+    assert after.sent_doubt_reason == "draft_missing"
+    (item,) = ok(connected.get("/api/contact/unsent"))["items"]
+    assert (item["kind"], item["send"]["needs_sent_check"]) == ("doubt", True)
+    path = f"{messages(prospect)}/contact"
+    if change == "archive":
+        ok(connected.post(f"{path}/reopen", json={"expected_revision": after.revision}))
+    revision = {"expected_revision": row(db_session, message["id"]).revision}
+    ok(connected.post(f"{path}/validate", json=revision))
+    refused(
+        connected.post(f"{path}/schedule", json=revision | {"scheduled_at": FUTURE.isoformat()}),
+        409,
+        "sent_check_required",
+    )

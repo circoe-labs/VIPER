@@ -22,6 +22,7 @@ import {
   sendErrorLabel,
   statusLine,
   utcOffset,
+  validationNotice,
 } from './mailModel'
 
 const OPEN = { state: 'neutral' as const, doNotContact: false, closed: false }
@@ -311,5 +312,20 @@ describe('scheduled sending (S7)', () => {
       dispatchLine(message('contact', 'scheduled', { dispatch_claimed_at: claimed, last_error_code: 'send_probably_sent' }), active, 'unconfirmed')
         ?.text,
     ).toMatch(/^Probablement envoyé/)
+  })
+})
+
+describe('what a change of address says beside the mail', () => {
+  const lost = { missed_scheduled_at: '2026-10-06T07:30:00Z', missed_reason: 'recipient_changed' }
+
+  it('says the validation or the schedule it removed', () => {
+    expect(validationNotice(message('contact', 'draft', { last_error_code: 'recipient_changed' }), false, false)).toMatch(/^Adresse du destinataire changée/)
+    expect(validationNotice(message('contact', 'draft', { ...lost, last_error_code: 'recipient_changed' }), false, false)).toMatch(
+      /le changement d’adresse du destinataire a retiré l’envoi prévu .*revalidez-le puis reprogrammez-le/,
+    )
+  })
+
+  it('never offers a new schedule of a mail that may have left before the check', () => {
+    expect(validationNotice(message('contact', 'draft', { ...lost, needs_sent_check: true }), false, false)).toMatch(/vérifiez d’abord les Envoyés/)
   })
 })

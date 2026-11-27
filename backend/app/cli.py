@@ -34,6 +34,7 @@ runs every `VIPER_CONTACT_DISPATCH_INTERVAL_MS` — and prints its counts; same 
 and exit code as `toolbox-cleanup`. `contact-dispatch --hold-scheduled` puts every scheduled,
 unclaimed message back to « Validé » (`dispatch_held`, audited): run it after restoring a backup
 (and before starting the API), so nothing restored as « Programmé » leaves again unreviewed.
+Those messages may already have left: each asks for a sent-items check before a new schedule.
 """
 
 import argparse

@@ -1081,6 +1081,17 @@ def test_the_cli_pass_the_hold_and_the_worker(
     assert "back to Validé: 1" in capsys.readouterr().out
     held = row(db_session, message["id"])
     assert (held.status, held.last_error_code) == (M.VALIDATED, "dispatch_held")
+    # The backup may predate its send: a person checks the sent items before any new schedule.
+    assert (held.sent_doubt_reason, held.missed_reason) == ("dispatch_held", "dispatch_held")
+    assert held.sent_doubt_at is not None
+    shown = ok(connected.get(messages(prospect)))["steps"][0]["message"]
+    assert shown["needs_sent_check"] is True
+    again = {"expected_revision": shown["revision"], "scheduled_at": FUTURE.isoformat()}
+    path = f"{messages(prospect)}/{shown['step']}/schedule"
+    refused(connected.post(path, json=again), 409, "sent_check_required")
+    ok(connected.post(path, json=again | {"sent_check_confirmed": True}))
+    assert row(db_session, message["id"]).sent_doubt_reason is None
+    assert cli.main(["contact-dispatch", "--hold-scheduled"], factory, integration) == 0
 
     worker = ContactDispatcher(integration, factory, config(interval=timedelta(hours=1)))
     assert worker.run_once() is not None

@@ -23,6 +23,7 @@ const REFUSALS: Record<string, string> = {
   invalid_transition: 'à revalider ou déjà traité',
   dispatch_in_progress: 'envoi en cours',
   prospect_sequence_closed: 'séquence close',
+  rank_beyond_max: 'trois e-mails au plus',
   prospect_do_not_contact: 'opposition « Ne pas contacter »',
   prospect_departed: 'plus en poste',
   prospect_archived: 'fiche archivée',

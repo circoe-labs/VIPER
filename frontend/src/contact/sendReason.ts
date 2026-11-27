@@ -4,7 +4,7 @@ import { sendErrorLabel } from './mailModel'
 // `dispatchLine`). Codes: backend contact_dispatch / contact_schedule_trace / warehouse_dispatch.
 const REASONS: Record<string, string> = {
   dispatch_overdue: 'heure dépassée : serveur arrêté ou Toolbox déconnectée',
-  dispatch_held: 'programmation retirée par l’exploitation du serveur',
+  dispatch_held: 'programmation retirée par l’exploitation du serveur : peut-être parti',
   send_draft_not_found: 'brouillon introuvable dans Infomaniak (supprimé, ou envoyé à la main)',
   draft_missing: 'brouillon introuvable dans Infomaniak : peut-être envoyé à la main',
   send_not_confirmed: 'envoi non confirmé : peut-être parti',

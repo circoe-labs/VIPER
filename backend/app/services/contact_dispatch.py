@@ -1127,7 +1127,9 @@ class Hold:
 def hold_scheduled(session: Session, actor: ActorContext, now: datetime | None = None) -> Hold:
     """Every unclaimed scheduled message back to Validé (`dispatch_held`): a restored backup
     taken before a send would otherwise send it again (handoff FINAL_REPORT recommendation 4).
-    People then schedule again what must leave."""
+    Each of them may already have left, so it carries the may-have-left doubt
+    (`contact_schedule_trace`): a person checks the sent items, then schedules again what must
+    leave."""
     moment = now or datetime.now(UTC)
     rows = session.scalars(
         select(ContactMessage)

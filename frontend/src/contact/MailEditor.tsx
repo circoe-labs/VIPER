@@ -38,6 +38,7 @@ import {
   remoteDraftLine,
   scheduleToIso,
   statusLine,
+  stepContext,
   validationNotice,
 } from './mailModel'
 import { Notice } from './Notice'
@@ -735,12 +736,15 @@ export function MailEditor({
     const text = 'Brouillon introuvable dans Infomaniak (autre compte, supprimé, ou envoyé à la main) : vérifiez les Envoyés, puis « Recréer » dans Contacts › Envois à reprendre.'
     signals.push({ id: 'draft-missing', tone: 'warning', icon: AlertIcon, label: text, detail: <p>{text}</p> })
   }
-  // A mail that may have left is said first; a schedule lost to an edit is said beside the mail (`validationNotice`),
-  // the other causes by this icon.
+  // A mail that may have left is said first; a schedule lost to an edit or to a change of address is said beside the
+  // mail (`validationNotice`), the other causes by this icon.
   if (message && message.status !== 'sent' && message.status !== 'scheduled' && message.needs_sent_check) {
-    const text = 'Ce mail est peut-être déjà parti : vérifiez le dossier Envoyés d’Infomaniak avant de le reprogrammer, ou « Marquer comme envoyé ».'
+    // After the sequence's last step nothing is scheduled or recorded as sent: only the check is left to confirm.
+    const text = stepContext(sequence, step).beyondLimit
+      ? 'Ce mail est peut-être déjà parti : vérifiez le dossier Envoyés d’Infomaniak. S’il n’y est pas, « Confirmer sans reprogrammer » dans Contacts › Envois à reprendre.'
+      : 'Ce mail est peut-être déjà parti : vérifiez le dossier Envoyés d’Infomaniak avant de le reprogrammer, ou « Marquer comme envoyé ».'
     signals.push({ id: 'missed', tone: 'warning', icon: AlertIcon, label: text, detail: <p>{text}</p> })
-  } else if (message?.missed_scheduled_at && message.missed_reason !== 'edited' && (message.status === 'draft' || message.status === 'validated')) {
+  } else if (message?.missed_scheduled_at && message.missed_reason !== 'edited' && message.missed_reason !== 'recipient_changed' && (message.status === 'draft' || message.status === 'validated')) {
     const text = `Envoi prévu le ${formatDateTime(message.missed_scheduled_at)} non effectué : ${sendReason(message.missed_reason ?? '')}.`
     signals.push({ id: 'missed', tone: 'warning', icon: AlertIcon, label: text, detail: <p>{text}</p> })
   }

@@ -32,8 +32,11 @@ RECIPIENT_CHANGED = "recipient_changed"
 # Taken back on purpose: nothing to recover.
 BY_PERSON = frozenset({UNSCHEDULED_BY_PERSON, EDITED, CANCELLED, SEQUENCE_LIMIT})
 
-# Dispatcher codes after which the mail may have left all the same.
-SENT_CHECK_REASONS = frozenset({"send_not_confirmed", "send_draft_not_found", "send_probably_sent"})
+# Dispatcher codes after which the mail may have left all the same (`dispatch_held`: the database
+# was perhaps restored from before the send).
+SENT_CHECK_REASONS = frozenset(
+    {"send_not_confirmed", "send_draft_not_found", "send_probably_sent", "dispatch_held"}
+)
 # `draft_check`: what the last look at the mailbox said of a scheduled message's draft.
 DRAFT_MISSING = "missing"
 DRAFT_UNVERIFIED = "unverified"

@@ -3,7 +3,8 @@
 - `app_settings.contact.max_follow_ups` above 2 becomes 2 (it can no longer be raised);
 - every unsent message beyond R2 (draft, validated or scheduled) is cancelled with
   `cancel_reason = 'sequence_limit'`; its Infomaniak draft is queued for deletion and a
-  scheduled one keeps its send moment in the `missed_*` trace, so the lists say it;
+  scheduled one keeps its send moment in the `missed_*` trace, so the lists say it; one whose
+  draft the last check did not find carries the may-have-left doubt (an earlier doubt stays);
 - both are written to the audit log.
 
 Untouched: sent messages (old R3/R4 stay in history), and a message claimed by the dispatcher
@@ -33,7 +34,7 @@ CONTEXT = (
 
 CANCEL = f"""
 WITH target AS (
-    SELECT id, prospect_id, status, remote_provider, remote_draft_id
+    SELECT id, prospect_id, status, remote_provider, remote_draft_id, draft_check
     FROM contact_messages
     WHERE rank > 2
       AND status IN ('draft', 'validated', 'scheduled')
@@ -62,6 +63,14 @@ WITH target AS (
         remote_provider = NULL,
         remote_draft_id = NULL,
         draft_check = NULL,
+        -- A scheduled mail whose draft is gone may have left (sent by hand): the same doubt as
+        -- `contact_schedule_trace.leave_schedule`. The first reason stays.
+        sent_doubt_reason = coalesce(message.sent_doubt_reason, CASE
+            WHEN message.status = 'scheduled' AND message.draft_check = 'missing'
+            THEN 'draft_missing' END),
+        sent_doubt_at = coalesce(message.sent_doubt_at, CASE
+            WHEN message.status = 'scheduled' AND message.draft_check = 'missing'
+            THEN now() END),
         last_error_code = CASE WHEN message.last_error_code LIKE 'toolbox\\_%'
             THEN NULL ELSE message.last_error_code END,
         last_error_at = CASE WHEN message.last_error_code LIKE 'toolbox\\_%'

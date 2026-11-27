@@ -346,7 +346,8 @@ export interface DispatchLine {
 
 // What an edit does to a validated or scheduled message, said beside the mail (never asked in a dialog): while the
 // change waits to be saved, then what was lost until it is validated or scheduled again. `invalidated` = this visit's
-// save (or restoration, or AI draft) removed a validation; a lost schedule is also kept by the server (`missed_*`).
+// save (or restoration, or AI draft) removed a validation; a lost schedule is also kept by the server (`missed_*`),
+// like a validation or a schedule lost to a change of the person's address (`recipient_changed`).
 export function validationNotice(message: Message | null, pendingEdit: boolean, invalidated: boolean): string | null {
   if (!message) return null
   if (pendingEdit && message.status === 'scheduled') {
@@ -356,11 +357,16 @@ export function validationNotice(message: Message | null, pendingEdit: boolean, 
     return 'Modification en cours : une fois enregistrée, ce message devra être revalidé avant tout envoi.'
   }
   if (message.status !== 'draft' && message.status !== 'validated') return null
-  if (message.missed_reason === 'edited' && message.missed_scheduled_at) {
+  const addressChanged = message.missed_reason === 'recipient_changed' || message.last_error_code === 'recipient_changed'
+  if ((message.missed_reason === 'edited' || message.missed_reason === 'recipient_changed') && message.missed_scheduled_at) {
     const again = message.status === 'draft' ? 'revalidez-le puis reprogrammez-le' : 'reprogrammez-le'
     // A mail that may have left is never offered for a new send before the sent items were looked at.
     const next = message.needs_sent_check ? `vérifiez d’abord les Envoyés (il est peut-être déjà parti), puis ${again}` : again
-    return `Plus programmé : la modification a retiré l’envoi prévu le ${formatDateTime(message.missed_scheduled_at)}. Pour qu’il parte, ${next}.`
+    const cause = message.missed_reason === 'edited' ? 'la modification' : 'le changement d’adresse du destinataire'
+    return `Plus programmé : ${cause} a retiré l’envoi prévu le ${formatDateTime(message.missed_scheduled_at)}. Pour qu’il parte, ${next}.`
+  }
+  if (message.status === 'draft' && addressChanged) {
+    return 'Adresse du destinataire changée : vérifiez-la puis revalidez ce message avant tout envoi.'
   }
   if (message.status === 'draft' && invalidated) {
     return 'Validation retirée par la modification : revalidez ce message avant tout envoi.'
@@ -436,7 +442,7 @@ export function dispatchLine(
     if (code === 'dispatch_held') {
       return {
         tone: 'warning',
-        text: 'Programmation retirée par l’exploitation du serveur (sauvegarde restaurée ou maintenance) : reprogrammez-le si l’envoi est toujours voulu.',
+        text: 'Programmation retirée par l’exploitation du serveur (sauvegarde restaurée ou maintenance) : ce mail est peut-être parti. Vérifiez les éléments envoyés de la boîte, puis reprogrammez-le si l’envoi est toujours voulu.',
       }
     }
     if (code.startsWith('send_') || code.startsWith('dispatch_')) {
