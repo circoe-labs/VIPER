@@ -6,7 +6,7 @@ import type { ResultView } from '../api/agents'
 import { COMMON, detail, MISSION } from '../missions/missionTestData'
 import { SHELL_API } from '../test/homeApi'
 import { type ApiReply, renderApp, stubApi } from '../test/render'
-import { historicalResult, RESULT_ID, resultCard, resultPage, resultView } from './reviewTestData'
+import { historicalResult, item, RESULT_ID, resultCard, resultPage, resultView } from './reviewTestData'
 
 type User = ReturnType<typeof userEvent.setup>
 
@@ -73,6 +73,30 @@ describe('ReviewDialog', () => {
     const email = rowOf(dialog, 'Domaine e-mail')
     expect(within(email).getByText('Moyenne · 55 %')).toBeInTheDocument()
     expect(within(email).getByText('ancienne')).toBeInTheDocument() // published in 2019
+  })
+
+  it('says which warehouse records accepting a discovered company will create', async () => {
+    const user = userEvent.setup()
+    const company = item({
+      key: 'company:0:exemple',
+      label: 'Société Exemple',
+      after: 'Nouvelle société',
+      store: {
+        display_name: 'Société Exemple',
+        warehouses_to_create: 1,
+        establishments: [
+          { name: 'Entrepôt Nord', kind: 'entrepôt', city: 'Ville Exemple', warehouse: { action: 'create' } },
+          { name: 'Entrepôt Sud', kind: 'entrepôt', city: 'Ville Exemple', warehouse: { action: 'duplicate', existing_name: 'Dépôt Sud' } },
+        ],
+      },
+    })
+    const base = resultView()
+    const { dialog } = await openDialog(user, resultView({ proposal: { ...base.proposal, kind: 'find_prospects', items: [company], refused: [] } }))
+
+    expect(within(dialog).getByText('Société + 1 fiche entrepôt')).toBeInTheDocument()
+    const sites = within(dialog).getByRole('list', { name: 'Établissements' })
+    expect(within(sites).getByText('Entrepôt à créer')).toBeInTheDocument()
+    expect(within(sites).getByText(/Entrepôt déjà enregistré : Dépôt Sud/)).toBeInTheDocument()
   })
 
   it('says what is missing on a result stored before the new fields existed', async () => {

@@ -368,7 +368,9 @@ TOOLS: list[dict[str, Any]] = [
             "Stage a discovered company for the claimed find_prospects task. No company is "
             "written. Give each action a stable UUID; retrying the same action is safe. "
             "company_data follows the companies item in the task's output_schema, including "
-            "confidence and public evidence. Finish with viper_submit_task_result and result {}."
+            "confidence and public evidence. List each warehouse under establishments with kind "
+            "« entrepôt »: once accepted it becomes a warehouse record of the company. Finish "
+            "with viper_submit_task_result and result {}."
         ),
         "inputSchema": {
             "type": "object",

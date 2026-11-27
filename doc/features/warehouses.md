@@ -36,6 +36,41 @@ Actual company/establishment links can be introduced once they have been identif
 - Raw alternative email candidates (including “ou”) are preserved and visibly remain to verify.
 - Existing protocol checks prevent source URLs from becoming script links.
 
+## Warehouses from discovery missions
+
+Accepting a discovered company (`find_prospects`, direct result or `viper_add_company`) creates,
+in the same transaction, one warehouse record per accepted **warehouse site**, linked to the
+company's establishment (`establishment_id`), so the directory shows the owning company
+(`services/warehouse_discovery`).
+
+- *Warehouse site*: its `kind` names an entrepôt, dépôt, hangar, warehouse, logistics site or
+  platform (a head office, office or agency is not one unless it says « entrepôt »). A site
+  without `kind` counts only if its name says entrepôt, warehouse or plateforme logistique.
+- *Record*: the site's name (else « company — city »), address, postal code, city, SIRET; the
+  cited source URL as `source_reference`; the trigger sentence, opening date and surface in
+  `notes`. The category stays « À classer » and no interlocutor is invented, so the file reads
+  « incomplete » until completed.
+- *Duplicates*: a site matching a recorded warehouse (same SIRET, same name and place, or same
+  address and a close name) creates none, and the existing record is left unchanged.
+- *Review*: a pending result says, per company, how many warehouse records will be created and
+  what happens to each site (computed on read).
+- Not covered: a company already in the base is refused by discovery, so its new sites are not
+  proposed; a company returned without any site creates no warehouse.
+
+### Backfill of results accepted earlier
+
+From `backend/` (target `VIPER_DATABASE_URL`); in production, inside the API container:
+`docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env exec api python -m app.cli backfill-warehouses`.
+
+1. `python -m app.cli backfill-warehouses` — dry run: lists each site of the accepted discovery
+   results as `À CRÉER`, `DÉJÀ LIÉ`, `DOUBLON`, `PAS UN ENTREPÔT` or `SITE SUPPRIMÉ`, and each
+   company accepted with `AUCUN SITE`. Nothing is written.
+2. Review the list, then `python -m app.cli backfill-warehouses --apply`. `--exclude <id>` leaves
+   a site out; `--include <id>` creates a « pas un entrepôt » site that is one (both repeatable,
+   with the establishment id printed on the line; duplicates are never forced).
+
+Running it again creates nothing new. Writes are audited as « Ligne de commande ».
+
 ## Warehouse mail drafts
 
 The draft view has PME/TPE and other-company tabs. Selecting a common date preplans drafts

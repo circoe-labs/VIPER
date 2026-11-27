@@ -11,12 +11,18 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy.orm import Session
 
 from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
 from app.models.agent_missions import AgentThread
-from app.models.enums import AgentTaskStatus, AgentThreadKind, AgentThreadStatus
-from app.services import agent_missions, agent_review
+from app.models.enums import (
+    AgentResultStatus,
+    AgentTaskStatus,
+    AgentThreadKind,
+    AgentThreadStatus,
+)
+from app.services import agent_missions, agent_review, warehouse_discovery
 
 router = APIRouter(prefix="/agents/threads", tags=["agents"])
 results_router = APIRouter(prefix="/agents/results", tags=["agents"])
@@ -189,8 +195,11 @@ def update_thread(
     return ThreadDetailOut(thread=_card(thread, tasks, company_name), tasks=_rows(tasks))
 
 
-def _result_out(review: agent_review.Review) -> ResultOut:
+def _result_out(session: Session, review: agent_review.Review) -> ResultOut:
     result = review.result
+    proposal = result.proposal
+    if result.status is AgentResultStatus.PENDING_REVIEW:
+        proposal = warehouse_discovery.preview(session, proposal)
     return ResultOut(
         id=result.id,
         task_id=result.task_id,
@@ -201,7 +210,7 @@ def _result_out(review: agent_review.Review) -> ResultOut:
         submitted_by_label=result.submitted_by_label,
         digest=result.digest,
         raw=result.raw,
-        proposal=result.proposal,
+        proposal=proposal,
         accepted_items=result.accepted_items,
         applied=result.applied,
         decision_note=result.decision_note,
@@ -216,7 +225,7 @@ def _result_out(review: agent_review.Review) -> ResultOut:
 @results_router.get("/{result_id}")
 def get_result(result_id: uuid.UUID, session: SessionDep) -> ResultOut:
     with business_errors():
-        return _result_out(agent_review.get_review(session, result_id))
+        return _result_out(session, agent_review.get_review(session, result_id))
 
 
 @results_router.post("/{result_id}/accept")
@@ -229,14 +238,14 @@ def accept_result(
     """Apply the accepted items through the ordinary service, as the person deciding."""
     with business_errors():
         agent_review.accept(session, actor, result_id, body.accepted_items, body.note)
-        return _result_out(agent_review.get_review(session, result_id))
+        return _result_out(session, agent_review.get_review(session, result_id))
 
 
 @results_router.post("/{result_id}/rebuild")
 def rebuild_result(result_id: uuid.UUID, session: SessionDep, actor: CurrentActor) -> ResultOut:
     with business_errors():
         agent_review.rebuild(session, actor, result_id)
-        return _result_out(agent_review.get_review(session, result_id))
+        return _result_out(session, agent_review.get_review(session, result_id))
 
 
 @results_router.post("/{result_id}/reject")
@@ -248,7 +257,7 @@ def reject_result(
 ) -> ResultOut:
     with business_errors():
         agent_review.reject(session, actor, result_id, body.reason)
-        return _result_out(agent_review.get_review(session, result_id))
+        return _result_out(session, agent_review.get_review(session, result_id))
 
 
 def _rows(tasks: list[agent_missions.TaskRow]) -> list[TaskRowOut]:

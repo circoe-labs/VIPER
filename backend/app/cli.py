@@ -12,6 +12,11 @@ up in shell history or process listings.
 password `VIPER_SQL_READER_PASSWORD`) and resets its grants to the explorer's exposed tables. Run it
 after every migration. Target database of both: `VIPER_DATABASE_URL`.
 
+`backfill-warehouses` lists the warehouses missing from accepted discovery results (companies
+accepted before VIPER created the warehouse records of their sites). It writes nothing unless
+`--apply` is given; `--include` / `--exclude <establishment id>` (repeatable) force or leave out
+one listed site. Safe to run again.
+
 `toolbox-cleanup --once` runs one pass of the CIRCOE Toolbox remote-draft cleanup queue (S6) —
 the same pass the API's worker runs every `VIPER_TOOLBOX_CLEANUP_INTERVAL_MS` — and prints its
 counts. It uses the token file of the API (`VIPER_TOOLBOX_TOKEN_STORE_PATH`): connect from the
@@ -28,6 +33,8 @@ unclaimed message back to « Validé » (`dispatch_held`, audited): run it after
 import argparse
 import getpass
 import sys
+import uuid
+from collections import Counter
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session, sessionmaker
@@ -36,7 +43,7 @@ from app.core.actor import ActorContext, ActorType
 from app.core.config import Settings, get_settings
 from app.db.session import create_db_engine, create_session_factory
 from app.models.enums import AgentMode, AgentProvider
-from app.services import contact_dispatch, mcp_tokens
+from app.services import contact_dispatch, mcp_tokens, warehouse_discovery
 from app.services.audit import attributed_unit_of_work
 from app.services.auth import create_or_reset_user
 from app.services.contact_dispatch import DispatchConfig, Dispatcher
@@ -111,6 +118,49 @@ def hold_scheduled(session_factory: sessionmaker[Session]) -> str:
         f"Scheduled messages put back to Validé: {hold.held}; "
         f"left claimed (settle them in the Contact page): {hold.claimed}."
     )
+
+
+def backfill_warehouses(session_factory: sessionmaker[Session], args: argparse.Namespace) -> str:
+    with attributed_unit_of_work(session_factory, CLI_ACTOR) as session:
+        # A dry run does the real work in a savepoint and undoes it: the listing is exact,
+        # duplicates between two listed sites included.
+        savepoint = session.begin_nested()
+        lines = warehouse_discovery.backfill(
+            session, CLI_ACTOR, include=set(args.include), exclude=set(args.exclude)
+        )
+        if not args.apply:
+            savepoint.rollback()
+    labels = {
+        "created": "CRÉÉ" if args.apply else "À CRÉER",
+        "exists": "DÉJÀ LIÉ",
+        "duplicate": "DOUBLON",
+        "not_warehouse": "PAS UN ENTREPÔT",
+        "excluded": "EXCLU",
+        "deleted_site": "SITE SUPPRIMÉ",
+        "no_site": "AUCUN SITE",
+    }
+    output = [
+        " | ".join(
+            filter(
+                None,
+                (
+                    labels[line.status],
+                    line.company_name,
+                    line.site,
+                    f"entrepôt : {line.warehouse}" if line.warehouse else None,
+                    f"établissement {line.establishment_id}" if line.establishment_id else None,
+                    f"résultat {line.result_id}",
+                ),
+            )
+        )
+        for line in lines
+    ]
+    counts = Counter(line.status for line in lines)
+    summary = ", ".join(f"{labels[status]} : {count}" for status, count in counts.items())
+    output.append(summary or "Aucun résultat de découverte accepté.")
+    if not args.apply:
+        output.append("Simulation : rien n’a été écrit. Relancer avec --apply pour créer.")
+    return "\n".join(output)
 
 
 def create_agent_token(session_factory: sessionmaker[Session], args: argparse.Namespace) -> str:
@@ -192,6 +242,20 @@ def main(
     commands.add_parser(
         "provision-sql-reader", help="create/align the SQL console's read-only role and its grants"
     )
+    backfill = commands.add_parser(
+        "backfill-warehouses",
+        help="create the warehouses missing from accepted discovery results (dry run by default)",
+    )
+    backfill.add_argument("--apply", action="store_true", help="write (default: only list)")
+    for flag, text in (("--include", "force a listed site"), ("--exclude", "leave a site out")):
+        backfill.add_argument(
+            flag,
+            action="append",
+            default=[],
+            type=uuid.UUID,
+            metavar="ESTABLISHMENT_ID",
+            help=f"{text} (repeatable)",
+        )
     cleanup = commands.add_parser(
         "toolbox-cleanup", help="delete the obsolete Infomaniak drafts queued by VIPER (one pass)"
     )
@@ -219,6 +283,8 @@ def main(
     try:
         if args.command == "create-agent-token":
             print(create_agent_token(session_factory, args))
+        elif args.command == "backfill-warehouses":
+            print(backfill_warehouses(session_factory, args))
         elif args.command == "provision-sql-reader":
             print(provision_reader(session_factory, settings))
         elif args.command == "contact-dispatch" and args.hold_scheduled:

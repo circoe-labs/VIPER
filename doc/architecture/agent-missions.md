@@ -315,6 +315,10 @@ available when no actions were staged. Acceptance applies the selected changes i
     base since the submission is skipped, not recreated; the first site becomes primary), then the
     trigger as a company signal (`origin=agent`, `source_url`, `task_result_id`, `valid_until`
     from the kind). Any failure rolls the whole acceptance back.
+  - *Warehouses*: in the same transaction, each created site that is a warehouse also becomes a
+    `warehouses` record linked to it (`services/warehouse_discovery`; rules, duplicates and the
+    backfill: `doc/features/warehouses.md`). `applied…establishments[]` gains `warehouse_id` and
+    `warehouse_status`; the pending review says what will be created.
   - *Provenance*: the company and its sites are audited as the deciding person's acceptance
     (`company.created`, `establishment.created`); the signal carries its source and result;
     `applied.companies[]` maps each created company to its source, each created site to the

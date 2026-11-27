@@ -3,6 +3,7 @@ import { ReviewEvidence } from './ReviewEvidence'
 import { SIGNAL_KIND_LABELS } from './labels'
 import { ConfidenceBadge } from './ReviewConfidence'
 import { formatSourceDate, safeHref, sourceLabel } from './reviewFormat'
+import { StatusBadge } from '../ui/Badge'
 import { Table } from '../ui/Table'
 
 export function shown(value: unknown): string {
@@ -64,6 +65,27 @@ const COMPANY_FIELDS: [string, string][] = [
   ['email_domain', 'Domaine e-mail'], ['size_label', 'Effectif'],
 ]
 
+// What accepting does about warehouses (`warehouses_to_create` and `site.warehouse`, computed by the server while the
+// result awaits a decision).
+function SiteOutcome({ plan }: { plan: unknown }) {
+  if (!isRecord(plan)) return null
+  const action = textOf(plan, 'action')
+  if (action === 'create') return <StatusBadge tone="success">Entrepôt à créer</StatusBadge>
+  if (action === 'duplicate') return <StatusBadge tone="warning">Entrepôt déjà enregistré : {textOf(plan, 'existing_name')}</StatusBadge>
+  if (action === 'known_site') return <StatusBadge tone="neutral">Site déjà connu, non recréé</StatusBadge>
+  return <StatusBadge tone="neutral">Établissement seul</StatusBadge>
+}
+
+function CreationSummary({ count }: { count: unknown }) {
+  if (typeof count !== 'number') return null
+  const label = count === 0 ? 'Société, sans fiche entrepôt' : `Société + ${String(count)} fiche${count > 1 ? 's' : ''} entrepôt`
+  return (
+    <p className="review-discovery__creation">
+      Sera créé : <StatusBadge tone={count === 0 ? 'warning' : 'success'}>{label}</StatusBadge>
+    </p>
+  )
+}
+
 // New company as a field table: one row per datum (value, source, confidence, dates), so the reviewer sees where each
 // piece comes from. A field without its own evidence falls back to the company's main source.
 function CompanyFieldTable({ item, evidence }: { item: ProposalItem; evidence: RawEvidence[] }) {
@@ -116,6 +138,7 @@ export function DiscoveryDetails({ item, evidence = [] }: { item: ProposalItem; 
   const score = trigger?.score_delta
   return (
     <div className="review-discovery">
+      <CreationSummary count={item.store?.warehouses_to_create} />
       <CompanyFieldTable item={item} evidence={evidence} />
       {sites.length > 0 && (
         <ul className="review-discovery__sites" aria-label="Établissements">
@@ -131,6 +154,7 @@ export function DiscoveryDetails({ item, evidence = [] }: { item: ProposalItem; 
                 {textOf(site, 'opened_on') && <span>ouvert le {textOf(site, 'opened_on')}</span>}
                 {surface && <span>{surface} m²</span>}
                 <SourceLink href={textOf(site, 'source')} />
+                <SiteOutcome plan={site.warehouse} />
               </li>
             )
           })}

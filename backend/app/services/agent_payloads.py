@@ -289,7 +289,12 @@ class EstablishmentProposal(BaseModel):
 
     name: str | None = Field(None, max_length=255)
     kind: str | None = Field(
-        None, max_length=100, description="Free text: siège, agence, entrepôt, usine…"
+        None,
+        max_length=100,
+        description=(
+            "Free text: siège, agence, entrepôt, usine… A warehouse or logistics site "
+            "(« entrepôt », « plateforme logistique ») also becomes a VIPER warehouse record."
+        ),
     )
     siret: str | None = Field(None, max_length=20)
     address_line1: str | None = Field(None, max_length=255)
@@ -403,8 +408,11 @@ INSTRUCTIONS: dict[AgentTaskType, str] = {
     AgentTaskType.FIND_PROSPECTS: (
         "Find companies matching this brief that are not in the base yet. Cite a public source for "
         "each one. When the brief is about sites (a warehouse opened, a plant built or extended, "
-        "a move), list those sites under `establishments` (name, kind, SIRET, address, city, "
-        "opened_on, surface_m2, source) and give the dated event as `trigger`, with the kind "
+        "a move), list those sites under `establishments` (name, kind, SIRET, address_line1, "
+        "postal_code, city, opened_on, surface_m2, source). Every warehouse or logistics "
+        "platform must be listed there with kind « entrepôt »: VIPER records it as a warehouse "
+        "of the company, and a company sent without its site creates no warehouse. Give the "
+        "dated event as `trigger`, with the kind "
         "that names it (facility_opening, facility_expansion, construction, relocation) and why "
         "it matters commercially."
     ),

@@ -74,7 +74,8 @@ export function WarehouseRow({ warehouse, onEdit, onlyToContact }: { warehouse: 
     <div id={`warehouse-${warehouse.id}`} hidden={!open} className="warehouse-card__details">
       <section className="warehouse-owner" aria-label={`Propriétaire de ${warehouse.name}`}>
         <h3><BuildingIcon size={16} /> Société rattachée (propriétaire)</h3>
-        {warehouse.owner_name ? <p><strong>{warehouse.owner_name}</strong>{warehouse.owner_role && <span> · {warehouse.owner_role}</span>}</p> : <p className="warehouse-muted">Société rattachée à renseigner</p>}
+        {warehouse.company_name && <p><strong>{warehouse.company_name}</strong>{warehouse.building_name && <span> · {warehouse.building_name}</span>}</p>}
+        {warehouse.owner_name ? <p><strong>{warehouse.owner_name}</strong>{warehouse.owner_role && <span> · {warehouse.owner_role}</span>}</p> : !warehouse.company_name && <p className="warehouse-muted">Société rattachée à renseigner</p>}
         {warehouse.owner_email && <p className="warehouse-contact-email"><strong>E-mail : </strong>{warehouse.owner_email}</p>}
         <LinkedIn url={warehouse.owner_linkedin} />
       </section>

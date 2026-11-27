@@ -44,6 +44,7 @@ from app.services import (
     prospect_editor,
     score_reassessment,
     taxonomies,
+    warehouse_discovery,
 )
 from app.services.agent_payloads import site_place
 from app.services.companies import CompanyInput, EstablishmentInput, EstablishmentView, get_company
@@ -458,8 +459,9 @@ def _apply_find_prospects(
     items: Sequence[dict[str, Any]],
     result_id: uuid.UUID,
 ) -> dict[str, Any]:
-    """Create each accepted company with its sites and its trigger signal, in the caller's
-    transaction: a failure on any of them leaves nothing written.
+    """Create each accepted company with its sites, the warehouse record of each site that is
+    one, and its trigger signal, in the caller's transaction: a failure on any of them leaves
+    nothing written.
 
     Provenance: the company and its sites are audited as the deciding person's acceptance; the
     signal carries `source_url`, `origin=agent` and `task_result_id`; `applied` maps every created
@@ -511,8 +513,25 @@ def _apply_find_prospects(
             }
             for view in detail.establishments
         ]
-        signal_id = None
         trigger = store.get("trigger")
+        warehouses = 0
+        for record in establishments:
+            site = session.get_one(Establishment, uuid.UUID(str(record["id"])))
+            if not warehouse_discovery.is_warehouse_site(site.kind, site.name):
+                continue
+            outcome = warehouse_discovery.create_for_site(
+                session,
+                actor,
+                site,
+                detail.display_name,
+                record,
+                source=record["source"] or store.get("source"),
+                signal=trigger["signal"] if trigger else None,
+            )
+            record["warehouse_id"] = outcome.warehouse_id
+            record["warehouse_status"] = outcome.status
+            warehouses += outcome.status == "created"
+        signal_id = None
         if trigger:
             note = _signal_note(trigger, result_id, company_id=detail.id)
             session.add(note)
@@ -528,9 +547,11 @@ def _apply_find_prospects(
             }
         )
         logger.info(
-            "find_prospects accepted: company=%s sites=%d skipped=%d trigger=%s result=%s",
+            "find_prospects accepted: company=%s sites=%d warehouses=%d skipped=%d "
+            "trigger=%s result=%s",
             detail.id,
             len(establishments),
+            warehouses,
             len(skipped),
             signal_id is not None,
             result_id,

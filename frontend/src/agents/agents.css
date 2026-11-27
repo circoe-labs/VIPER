@@ -433,6 +433,10 @@
   color: var(--color-text);
 }
 
+.review-discovery__creation {
+  margin: 0;
+}
+
 .review-discovery__reason {
   font-style: italic;
 }
