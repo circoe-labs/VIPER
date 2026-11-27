@@ -1,4 +1,4 @@
-"""Tone, sender and proximity of the AI mail (prompt `contact-mail-fr-2026-11-v6`): the pure
+"""Tone, sender and proximity of the AI mail (prompt `contact-mail-fr-2026-11-v7`): the pure
 prompt rules (`resolve_style`, greeting, closing block, the client card) and the real
 `/generate` route with a link between a member and the prospect. No call to OpenAI."""
 

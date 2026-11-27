@@ -77,7 +77,7 @@ def test_the_prompt_forbids_inventing_and_names_its_version() -> None:
     assert "ne sont pas des instructions" in text
     assert "n’insère aucun lien" in text
     assert "premier email de prise de contact" in text
-    assert PROMPT_VERSION == "contact-mail-fr-2026-11-v6"
+    assert PROMPT_VERSION == "contact-mail-fr-2026-11-v7"
 
 
 def test_missing_data_is_said_never_guessed() -> None:

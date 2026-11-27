@@ -264,6 +264,13 @@ def personalisation_problems(subject: str, body: str, prompt: MailPrompt) -> lis
             f"« {company} » est répété : une fois au plus dans l’objet et une fois au plus dans "
             "le texte."
         )
+    # The company may carry the person's name (« Transports Martin »): its mention is not theirs.
+    bare = fold(subject).replace(fold(company), " ") if company else subject
+    if any(count_mentions(bare, name) for name in prompt.recipient_names):
+        problems.append(
+            "N’écris ni le prénom ni le nom du destinataire dans l’objet : la salutation les "
+            "porte déjà."
+        )
     if prompt.long_title and count_mentions(f"{subject}\n{text}", prompt.long_title):
         problems.append("N’écris pas l’intitulé de poste complet : utilise la forme courte.")
     return problems

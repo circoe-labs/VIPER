@@ -54,7 +54,7 @@ from app.services.mail_generation.naming import (
     short_title,
 )
 
-PROMPT_VERSION = "contact-mail-fr-2026-11-v6"
+PROMPT_VERSION = "contact-mail-fr-2026-11-v7"
 
 # The fixed block that closes every mail (Circoe, 2026-10-07). The model never writes it: the
 # adapter adds it
@@ -318,6 +318,8 @@ class MailPrompt:
     unattached_companies: tuple[str, ...] = ()
     # The exact job title when it is too long to be written as is.
     long_title: str | None = None
+    # The recipient's first and family name: never written in the subject.
+    recipient_names: tuple[str, ...] = ()
     # The subjects other prospects' messages already use (never sent to the model).
     taken_subjects: frozenset[str] = frozenset()
 
@@ -493,10 +495,12 @@ def build_instructions(
             booking,
             "- Objet : une seule ligne, 70 caractères maximum, sans « Objet : ». Il est propre "
             "à ce "
-            "destinataire : il s’appuie sur au moins un élément précis de sa fiche (son nom, sa "
+            "destinataire : il s’appuie sur au moins un élément précis de sa fiche (sa "
             "fonction et ce qu’elle recouvre, l’activité ou la ville de l’entreprise, un fait "
             "professionnel) et sa tournure change d’une personne à l’autre ; jamais un objet "
-            "générique valable pour tout le monde.",
+            "générique valable pour tout le monde. N’y écris jamais le prénom ni le nom du "
+            "destinataire (la salutation les porte déjà), même si l’exemple ou la consigne "
+            "initiale le fait.",
             "- Fonction : écris-la sous la forme courte de la ligne « Fonction » (par exemple "
             "« Directeur »), jamais un intitulé long ni l’intitulé complet.",
             "- Société : écris son nom au plus une fois dans le texte (salutation non comptée) et "
@@ -779,4 +783,9 @@ def build_prompt(context: MailContext) -> MailPrompt:
         company=names[0] if len(names) == 1 else None,
         unattached_companies=tuple(names) if len(names) > 1 else (),
         long_title=job if long_job and job != short_title(job, context.company.name) else None,
+        recipient_names=tuple(
+            name
+            for name in (_clean(context.prospect.first_name), _clean(context.prospect.last_name))
+            if name
+        ),
     )

@@ -157,3 +157,17 @@ def test_a_compliant_answer_is_asked_once() -> None:
     fake.generator().generate(checked(company="Alpha"))
 
     assert len(fake.requests) == 1
+
+
+def test_the_recipients_name_is_refused_in_the_subject() -> None:
+    body = "Bonjour,\n\nProposition d’un échange de 30 minutes."
+    names = checked(company="Alpha", recipient_names=("Camille", "Martin"))
+    for subject in ("Camille Martin — vos flux", "Vos flux, camille", "M. MARTIN : un point"):
+        assert any(
+            "destinataire dans l’objet" in problem
+            for problem in personalisation_problems(subject, body, names)
+        ), subject
+    assert personalisation_problems("Vos flux entre les quais", body, names) == []
+    # A company carrying the family name is not the person.
+    family = checked(company="Transports Martin", recipient_names=("Camille", "Martin"))
+    assert personalisation_problems("Transports Martin : vos flux", body, family) == []
