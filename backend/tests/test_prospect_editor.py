@@ -714,7 +714,7 @@ def test_the_view_derives_the_contact_progress(db_session: Session) -> None:
     # The Contact planning's level key, the same on the sheet as in the lists.
     assert (before.level, after.level) == ("contact_pending", "contact_sent")
     assert (after.sent_count, after.level_label, after.next_step) == (1, "R1", "r1")
-    assert (after.next_due_on, after.max_follow_ups) == (date(2026, 10, 5), 4)
+    assert (after.next_due_on, after.max_follow_ups) == (date(2026, 10, 5), 2)
 
 
 def test_an_appointment_time_needs_its_day_and_referents_must_exist(db_session: Session) -> None:

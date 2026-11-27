@@ -201,8 +201,8 @@ def test_the_steps_are_independent_and_unique(db_session: Session) -> None:
 
     read = service.prospect_messages(db_session, prospect.id, None)
     assert [item.rank for item in read.messages if item.message] == [0, 1, 2]
-    # Every step up to R<max> is listed (4 by default), the empty ones without a message.
-    assert [item.step for item in read.messages] == ["contact", "r1", "r2", "r3", "r4"]
+    # Every step up to R<max> is listed (R2 by default), the empty ones without a message.
+    assert [item.step for item in read.messages] == ["contact", "r1", "r2"]
     # Saving without a revision again is a creation attempt: refused, the step exists.
     with pytest.raises(ContactMessageError) as refused:
         service.save_message(db_session, OPERATOR, prospect.id, 1, COMPLETE)

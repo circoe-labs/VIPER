@@ -3,8 +3,9 @@ models, the services and the API.
 
 - A **step** is a rank of the sequence: 0 = the Contact mail, n = the follow-up Rn. Its code
   (`contact`, `r1`, `r2`…) addresses it in the API, its label (« Contact », « R1 »…) is shown.
-  The ranks are unlimited in storage; the editor and the planning open them up to « max
-  relances » (Paramètres, 4 by default, at most `MAX_FOLLOW_UPS_LIMIT`).
+  A sequence is three e-mails at most: Contact, R1, R2 (`MAX_FOLLOW_UPS_LIMIT`). The ranks are
+  unlimited in storage (old R3/R4 sends stay in history); the editor and the planning open them
+  up to « max relances » (Paramètres, 2 by default, never above 2: it can only be lowered).
 - A **level** is where a sequence stands after its real sends, for the weekly distribution:
   nothing sent (`contact_pending`), the Contact sent (`contact_sent`), Rn sent (`r<n>_sent`, for
   n below the maximum) and « Relance terminée » (`finished`: R<max> sent, or the sequence closed
@@ -14,9 +15,10 @@ models, the services and the API.
 import re
 
 CONTACT_RANK = 0
-# « Max relances » when Paramètres has no value (D2), and its upper bound (Q4).
-DEFAULT_MAX_FOLLOW_UPS = 4
-MAX_FOLLOW_UPS_LIMIT = 20
+# The product rule: Contact + R1 + R2, never a fourth e-mail. « Max relances » (Paramètres) may
+# only lower it; a stored value above the limit reads as the limit.
+MAX_FOLLOW_UPS_LIMIT = 2
+DEFAULT_MAX_FOLLOW_UPS = MAX_FOLLOW_UPS_LIMIT
 
 STEP_CODE = re.compile(r"contact|r([1-9][0-9]?)")
 # The path pattern of a step code (`contact`, `r1` … `r99`); the service checks the maximum.

@@ -4,9 +4,9 @@ sequences rework D1, D3, D6).
 The only application write path of `contact_messages`. One durable message per sequence and rank;
 the editor addresses the ranks of the prospect's **current open** sequence (0 = Contact, n = Rn,
 code `contact`/`r<n>`, `app.core.contact_steps`), from the Contact up to R<max> (« max
-relances », Paramètres): a rank beyond the maximum is refused for anything that prepares a mail
-(409 `rank_beyond_max`) — it can still be read, unscheduled or cancelled (the maximum may have
-been lowered since). Statuses and transitions:
+relances », Paramètres, R2 at most): a rank beyond the maximum is refused for anything that
+prepares or records a mail (409 `rank_beyond_max`) — it can still be read, unscheduled or
+cancelled (an old R3/R4, or a maximum lowered since). Statuses and transitions:
 
     (none)    -> draft       create: `save_message` without `expected_revision`
     draft     -> draft       edit: content saved, `revision` + 1 (a new subject or body clears the
@@ -1091,6 +1091,7 @@ def remote_draft_target(
     if message.status not in VALIDATED:
         raise _invalid_transition(message, "create the remote draft of")
     _require_open(context)
+    _require_rank(context, rank)
     _require_not_claimed(message)
     return MessageResult(message, changed=False)
 
@@ -1248,8 +1249,8 @@ def mark_sent(
     now; not in the future, not before the previous send). The step's unsent message becomes that
     send (its text kept: draft, validated, scheduled or cancelled alike); without one, a send
     record without text is created — both are the same send: status `sent`, source `manual`,
-    audited `contact_message.sent`. The level moves by one (D1); « Relance terminée » does not
-    prevent it (the prospect stays contactable), the planning then has nothing due.
+    audited `contact_message.sent`. The level moves by one (D1). After R<max> there is no further
+    step: 409 `rank_beyond_max` (three e-mails per sequence).
 
     `rank` (recommended): the step the person saw as next. When that rank is already sent in the
     open sequence, the declaration is a replay (double click, retried request): the recorded send
@@ -1289,6 +1290,7 @@ def mark_sent(
             next_step=step_code(next_rank),
         )
     rank = next_rank
+    _require_rank(context, rank)
     if previous is not None and moment < previous:
         raise InvalidFieldError(
             "sent_at", "A send cannot precede the previous send.", "before_previous_send"

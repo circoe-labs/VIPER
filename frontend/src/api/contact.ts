@@ -4,6 +4,7 @@ import { apiGet, apiRequest } from './client'
 import { historyKeys } from './history'
 import type { ActivityStatus, TrackingStatus } from './prospection'
 import { refreshAfterWrite } from './refresh'
+import { sequenceKeys } from './sequences'
 import type { ToolboxState } from './toolbox'
 import type { SendSituation } from './unsent'
 
@@ -15,9 +16,10 @@ export const CONTACTED = 'CONTACTES'
 export const CONTACT_SECTIONS = [CONTACTED] as const
 export type ContactSection = (typeof CONTACT_SECTIONS)[number]
 
-// The steps every sequence has; the server adds R3… up to « max relances » (Paramètres, 4 by default).
+// A sequence is three e-mails at most. The server may offer fewer (« max relances » lowered), and still lists an old
+// R3/R4 kept in the history (read-only: nothing is prepared or scheduled beyond R2).
 export const MESSAGE_STEPS = ['contact', 'r1', 'r2'] as const
-// A step code of the sequence: `contact`, `r1`, `r2`, `r3`…
+// A step code of the sequence: `contact`, `r1`, `r2` (older history: `r3`, `r4`).
 export type MessageStep = string
 export type MessageStatus = 'draft' | 'validated' | 'scheduled' | 'sent' | 'cancelled'
 // What the next action prepares: the step code of the sequence (`contact`, `r1`… up to R<max>).
@@ -240,6 +242,8 @@ export interface MessageSequence {
     closed: boolean
     // The step to send next (`contact`, `r1`…), derived from the real sends; null when finished or without cohort.
     next_step?: string | null
+    // « Max relances » (2 at most): the last step that can be prepared.
+    max_follow_ups?: number
   }
   // `generation_available`: the AI drafting is configured on the server (S5). `toolbox_connected`: the CIRCOE Toolbox
   // is connected (S6) — a validation creates the Infomaniak draft, sent from the account's default mailbox;
@@ -581,6 +585,8 @@ export function useMessageMutations(prospectId: string) {
       ['contact', 'page'],
       ['contact', 'dashboard'],
       ['contact', 'scheduling'],
+      // The sheet beside the editor says the effective schedule: an edit or a schedule changes it.
+      sequenceKeys.prospect(prospectId),
       // Every text a write leaves is a kept version.
       ['contact', 'versions', prospectId],
       historyKeys.subject('prospects', prospectId),

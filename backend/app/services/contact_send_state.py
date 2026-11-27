@@ -32,6 +32,7 @@ from app.services.contact_schedule_trace import (
     BY_PERSON,
     CANCELLED,
     DRAFT_MISSING,
+    SEQUENCE_LIMIT,
 )
 
 M = ContactMessageStatus
@@ -69,7 +70,10 @@ def message_situation(message: ContactMessage) -> SendSituation | None:
     elif message.missed_reason is None:
         return None
     else:
-        if message.status is M.CANCELLED and message.missed_reason != CANCELLED:
+        if message.status is M.CANCELLED and message.missed_reason not in (
+            CANCELLED,
+            SEQUENCE_LIMIT,
+        ):
             return None
         state = "unscheduled" if message.missed_reason in BY_PERSON else "missed"
         scheduled_at = message.missed_scheduled_at

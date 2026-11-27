@@ -22,11 +22,12 @@ def _row(session: Session, key: str, *, lock: bool = False) -> AppSetting | None
 
 
 def max_follow_ups(session: Session) -> int:
-    """« Max relances »: after R<max> is sent, the sequence is « Relance terminée »."""
+    """« Max relances »: after R<max> is sent, the sequence is « Relance terminée ». A stored
+    value outside 0 … `MAX_FOLLOW_UPS_LIMIT` reads as the nearest bound."""
     row = _row(session, MAX_FOLLOW_UPS_KEY)
     value = row.value if row is not None else None
     if isinstance(value, int) and not isinstance(value, bool):
-        return value
+        return min(max(value, 0), MAX_FOLLOW_UPS_LIMIT)
     return DEFAULT_MAX_FOLLOW_UPS
 
 

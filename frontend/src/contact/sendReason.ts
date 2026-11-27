@@ -15,6 +15,7 @@ const REASONS: Record<string, string> = {
   unscheduled_by_person: 'déprogrammé à la main',
   edited: 'message modifié : à revalider et reprogrammer',
   cancelled: 'message annulé',
+  sequence_limit: 'trois e-mails au plus (Contact, R1, R2)',
   not_validated: 'message non validé',
 }
 

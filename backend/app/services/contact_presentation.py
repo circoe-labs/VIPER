@@ -1,6 +1,6 @@
 """Contact page: real distribution by latest recorded send and separate chart annotations.
 
-One prospect appears in exactly one bar. The fifth bar includes R4 and any later follow-up.
+One prospect appears in exactly one bar. The last bar (R2) includes the old R3/R4 sends.
 Chart dates are human annotations, never schedules or message send dates.
 """
 
@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
-from app.core.contact_steps import level_keys, level_label
+from app.core.contact_steps import MAX_FOLLOW_UPS_LIMIT, level_keys, level_label, step_label
 from app.db.session import whole_base_plan
 from app.models import AppSetting, ContactMessage, Prospect
 from app.models.app_settings import CONTACT_CHART_DATE_KEYS
@@ -64,6 +64,15 @@ STATE_LABELS = {
 }
 
 
+# One bar per step of a sequence (Contact, R1, R2); the further stored date keys are unused.
+CHART_DATE_KEYS = CONTACT_CHART_DATE_KEYS[: MAX_FOLLOW_UPS_LIMIT + 1]
+
+
+def _bar_label(slot: int) -> str:
+    last = slot == MAX_FOLLOW_UPS_LIMIT
+    return f"{step_label(slot)} et au-delà" if last else step_label(slot)
+
+
 def overview(session: Session, filters: ContactFilters, clock: ContactClock) -> Overview:
     sends = (
         select(
@@ -79,7 +88,7 @@ def overview(session: Session, filters: ContactFilters, clock: ContactClock) -> 
         .where(ContactMessage.status == ContactMessageStatus.SENT)
         .subquery("recorded_sends")
     )
-    slot = func.least(sends.c.rank, 4)
+    slot = func.least(sends.c.rank, MAX_FOLLOW_UPS_LIMIT)
     statement = (
         join_segment_sources(select(slot, func.count()))
         .join(sends, sends.c.prospect_id == Prospect.id)
@@ -114,11 +123,11 @@ def overview(session: Session, filters: ContactFilters, clock: ContactClock) -> 
         bars=[
             ChartBar(
                 slot=index,
-                label="Contact" if index == 0 else "R4 et suivantes" if index == 4 else f"R{index}",
+                label=_bar_label(index),
                 count=counts.get(index, 0),
                 send_date=dates.get(key),
             )
-            for index, key in enumerate(CONTACT_CHART_DATE_KEYS)
+            for index, key in enumerate(CHART_DATE_KEYS)
         ],
         companies=[CompanyChoice(id=id_, label=label) for id_, label in companies],
         statuses=[

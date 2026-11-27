@@ -96,12 +96,12 @@ def planning(db_session: Session) -> dict[str, uuid.UUID]:
     people = {
         # S37 (7 Sept): Contact and R1 sent, nothing in week 38 → R2 due since 21 Sept (overdue).
         "r2_overdue": person(db_session, "Aaa", cohort=S37, sends=weekly(date(2026, 9, 7), 2)),
-        # Contact, R1, R2 sent (the last on 21 Sept) → R3 due on Monday 28 Sept (this week).
-        "r3": person(db_session, "Bbb", cohort=S37, sends=weekly(date(2026, 9, 7), 3)),
-        # R3 sent on Monday 28 Sept → R4 due on Monday 5 Oct (next week).
-        "r4_next": person(db_session, "Ccc", cohort=S37, sends=weekly(date(2026, 9, 7), 4)),
-        # Contact … R4 sent (max 4): « Relance terminée ».
-        "finished": person(db_session, "Ddd", cohort=S37, sends=weekly(date(2026, 8, 31), 5)),
+        # Contact sent on 21 Sept → R1 due on Monday 28 Sept (this week).
+        "r1_due": person(db_session, "Bbb", cohort=S37, sends=(at(date(2026, 9, 21)),)),
+        # R1 sent on Monday 28 Sept → R2 due on Monday 5 Oct (next week).
+        "r2_next": person(db_session, "Ccc", cohort=S37, sends=weekly(date(2026, 9, 21), 2)),
+        # Contact, R1, R2 sent: the three e-mails left, « Relance terminée ».
+        "finished": person(db_session, "Ddd", cohort=S37, sends=weekly(date(2026, 8, 31), 3)),
         # S39 (28 Sept): nothing sent → Contact due this week.
         "new": person(db_session, "Eee", cohort=S39),
         # Contact sent on 28 Sept → R1 due next week.
@@ -161,14 +161,12 @@ def test_this_weeks_planning_by_rank(db_session: Session, planning: dict[str, uu
     )
     assert (result.week.monday, result.week.sunday) == (date(2026, 9, 28), date(2026, 10, 4))
     assert (result.to_send.total, result.to_send.overdue) == (4, 1)
-    # Contact: the new S39 prospect and the AI-alert one; R2 overdue (no S38); R3 this week.
-    assert groups(result) == {0: (2, 0), 1: (0, 0), 2: (1, 1), 3: (1, 0), 4: (0, 0)}
+    # Contact: the new S39 prospect and the AI-alert one; R2 overdue (no S38); R1 this week.
+    assert groups(result) == {0: (2, 0), 1: (1, 0), 2: (1, 1)}
     assert [group.step_label for group in result.to_send.groups] == [
         "Contact",
         "R1",
         "R2",
-        "R3",
-        "R4",
     ]
     assert names(db_session, ContactFilters()) == ["Aaa", "Bbb", "Eee", "Iii"]
     assert names(db_session, ContactFilters(rank=0)) == ["Eee", "Iii"]
@@ -183,7 +181,7 @@ def test_a_future_or_past_week_shows_only_its_own_due_dates(
         0,
         False,
     )
-    assert groups(upcoming) == {0: (1, 0), 1: (1, 0), 2: (0, 0), 3: (0, 0), 4: (1, 0)}
+    assert groups(upcoming) == {0: (1, 0), 1: (1, 0), 2: (1, 0)}
     assert names(db_session, ContactFilters(week=W41)) == ["Ccc", "Fff", "Ggg"]
 
     past = dashboard(db_session, CLOCK, ContactFilters(week=W39))
@@ -242,18 +240,14 @@ def test_levels_of_the_sequences_in_progress(
 
     assert levels(result) == {
         "contact_pending": 5,  # new, next cohort, email error, AI alert, inactive
-        "contact_sent": 1,
-        "r1_sent": 1,
-        "r2_sent": 1,
-        "r3_sent": 1,
+        "contact_sent": 2,
+        "r1_sent": 2,
         "finished": 1,
     }
     assert [level.label for level in result.levels] == [
         "Contact à envoyer",
         "Contact envoyé",
         "R1 envoyée",
-        "R2 envoyée",
-        "R3 envoyée",
         "Relance terminée",
     ]
     assert sum(levels(result).values()) == result.categories[0].count  # `in_sequence`
@@ -398,12 +392,11 @@ def test_cohorts_show_where_their_sequences_stand(
         1,
     )
     assert {level.level: level.count for level in s37.levels if level.count} == {
-        "r1_sent": 1,
-        "r2_sent": 1,
-        "r3_sent": 1,
+        "contact_sent": 1,
+        "r1_sent": 2,
         "finished": 1,
     }
-    assert s37.to_send_steps == ["r2", "r3"]  # the two to send, by rank
+    assert s37.to_send_steps == ["r1", "r2"]  # the two to send, by rank
     assert s37.appointments == 1  # the appointment counted in the five, listed apart
     s39 = cohorts["S39"]
     assert (s39.prospects, s39.in_sequence, s39.to_send) == (7, 5, 2)
@@ -426,12 +419,12 @@ def test_week_options(db_session: Session, planning: dict[str, uuid.UUID]) -> No
 
 def test_search_and_rows(db_session: Session, planning: dict[str, uuid.UUID]) -> None:
     assert dashboard(db_session, CLOCK, ContactFilters(search="bbb")).to_send.total == 1
-    sequence = db_session.query(ContactSequence).filter_by(prospect_id=planning["r3"]).one()
+    sequence = db_session.query(ContactSequence).filter_by(prospect_id=planning["r1_due"]).one()
     db_session.add(
         ContactMessage(
-            prospect_id=planning["r3"],
+            prospect_id=planning["r1_due"],
             sequence_id=sequence.id,
-            rank=3,
+            rank=1,
             status=ContactMessageStatus.DRAFT,
         )
     )
@@ -440,18 +433,16 @@ def test_search_and_rows(db_session: Session, planning: dict[str, uuid.UUID]) ->
     [row] = list_contacts(db_session, ContactFilters(search="bbb"), CLOCK).items
 
     assert (row.next_rank, row.next_message_status, row.email_error) == (
-        3,
+        1,
         ContactMessageStatus.DRAFT,
         False,
     )
     assert [(message.step, message.status) for message in row.messages] == [
         ("contact", ContactMessageStatus.SENT),
-        ("r1", ContactMessageStatus.SENT),
-        ("r2", ContactMessageStatus.SENT),
-        ("r3", ContactMessageStatus.DRAFT),
+        ("r1", ContactMessageStatus.DRAFT),
     ]
     assert row.last_sent_at == at(date(2026, 9, 21))
-    assert [message.sent_at is not None for message in row.messages] == [True, True, True, False]
+    assert [message.sent_at is not None for message in row.messages] == [True, False]
     error_row = list_contacts(db_session, ContactFilters(category=C.EMAIL_ERROR), CLOCK).items[0]
     assert (error_row.email_error, error_row.next_due_at, error_row.to_send) == (True, None, False)
 
@@ -491,16 +482,16 @@ def test_pagination(db_session: Session, planning: dict[str, uuid.UUID]) -> None
 def test_a_lower_maximum_finishes_sequences(
     db_session: Session, planning: dict[str, uuid.UUID]
 ) -> None:
-    app_settings.set_max_follow_ups(db_session, OPERATOR, 2)
+    app_settings.set_max_follow_ups(db_session, OPERATOR, 1)
 
     result = dashboard(db_session, CLOCK)
 
-    # R3 is beyond the maximum: « Relance terminée », nothing due; R2 is still the last one.
-    assert result.max_follow_ups == 2
-    assert groups(result) == {0: (2, 0), 1: (0, 0), 2: (1, 1)}
-    assert levels(result) == {"contact_pending": 5, "contact_sent": 1, "r1_sent": 1, "finished": 3}
-    assert [level.level for level in result.levels] == level_keys(2)
-    assert names(db_session, ContactFilters(category=C.FINISHED)) == ["Bbb", "Ccc", "Ddd"]
+    # R2 is beyond the maximum: « Relance terminée », nothing due; R1 is the last one.
+    assert result.max_follow_ups == 1
+    assert groups(result) == {0: (2, 0), 1: (1, 0)}
+    assert levels(result) == {"contact_pending": 5, "contact_sent": 2, "finished": 3}
+    assert [level.level for level in result.levels] == level_keys(1)
+    assert names(db_session, ContactFilters(category=C.FINISHED)) == ["Aaa", "Ccc", "Ddd"]
 
 
 def test_a_cohort_change_restarts_the_planning(
@@ -704,7 +695,7 @@ def test_the_planning_over_http(client: TestClient, db_session: Session) -> None
         "dispatch",
     }
     assert body["week"]["week"] == body["current_week"]
-    assert body["max_follow_ups"] == 4
+    assert body["max_follow_ups"] == 2
     assert body["to_send"]["total"] >= 1 and body["to_send"]["overdue"] >= 1
     assert body["to_send"]["groups"][0] == {
         "rank": 0,
@@ -717,8 +708,6 @@ def test_the_planning_over_http(client: TestClient, db_session: Session) -> None
         "contact",
         "r1",
         "r2",
-        "r3",
-        "r4",
     ]
     assert body["levels"][0] == {
         "level": "contact_pending",
@@ -784,8 +773,8 @@ def test_the_planning_over_http(client: TestClient, db_session: Session) -> None
         ({"week": "2025-W53"}, "week", "iso_week"),  # 2025 has 52 ISO weeks
         ({"week": "2026-41"}, "week", "iso_week"),
         ({"week": "1999-W10"}, "week", "iso_week"),
-        ({"rank": "5"}, "rank", "out_of_range"),  # « max relances » is 4
-        ({"level": "r4_sent"}, "level", "unknown_level"),  # R4 sent = « Relance terminée »
+        ({"rank": "5"}, "rank", "out_of_range"),  # « max relances » is 2
+        ({"level": "r2_sent"}, "level", "unknown_level"),  # R2 sent = « Relance terminée »
         ({"level": "r1"}, "level", "unknown_level"),
     ],
 )

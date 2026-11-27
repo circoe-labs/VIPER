@@ -54,7 +54,7 @@ def test_every_route_needs_a_session(anonymous_client: TestClient, method: str, 
 def test_writes_need_the_csrf_token(client: TestClient) -> None:
     del client.headers[CSRF_HEADER]
     assert client.post(f"{SETTINGS}/cohorts", json={"code": "S1"}).status_code == 403
-    assert client.put(f"{SETTINGS}/contact", json={"max_follow_ups": 3}).status_code == 403
+    assert client.put(f"{SETTINGS}/contact", json={"max_follow_ups": 1}).status_code == 403
     prospect = f"{PROSPECTS}/{uuid.uuid4()}"
     assert client.put(f"{prospect}/cohort", json={"cohort_id": None}).status_code == 403
     assert client.post(f"{prospect}/messages/mark-sent", json={"rank": 0}).status_code == 403
@@ -106,17 +106,20 @@ def test_a_used_cohort_is_not_deleted(client: TestClient, db_session: Session) -
 
 
 def test_max_follow_ups(client: TestClient, db_session: Session) -> None:
-    assert ok(client.get(f"{SETTINGS}/contact")) == {"max_follow_ups": 4}
+    assert ok(client.get(f"{SETTINGS}/contact")) == {"max_follow_ups": 2}
 
-    assert ok(client.put(f"{SETTINGS}/contact", json={"max_follow_ups": 6})) == {
-        "max_follow_ups": 6
+    assert ok(client.put(f"{SETTINGS}/contact", json={"max_follow_ups": 1})) == {
+        "max_follow_ups": 1
     }
 
-    assert ok(client.get(f"{SETTINGS}/contact")) == {"max_follow_ups": 6}
-    assert client.put(f"{SETTINGS}/contact", json={"max_follow_ups": -1}).status_code == 422
-    assert client.put(f"{SETTINGS}/contact", json={"max_follow_ups": 4, "x": 1}).status_code == 422
+    assert ok(client.get(f"{SETTINGS}/contact")) == {"max_follow_ups": 1}
+    # It cannot be raised above 2: three e-mails per sequence.
+    for refused_value in (-1, 3, 4):
+        body = {"max_follow_ups": refused_value}
+        assert client.put(f"{SETTINGS}/contact", json=body).status_code == 422
+    assert client.put(f"{SETTINGS}/contact", json={"max_follow_ups": 2, "x": 1}).status_code == 422
     [event] = audit_events(db_session, entity_type="app_setting")
-    assert event.changes["value"] == {"before": None, "after": 6}
+    assert event.changes["value"] == {"before": None, "after": 1}
 
 
 def test_change_of_cohort_and_sequences(client: TestClient, db_session: Session) -> None:

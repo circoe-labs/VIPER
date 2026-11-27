@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { useScheduleCohorts } from '../api/contact'
+import { MESSAGE_STEPS, useScheduleCohorts } from '../api/contact'
 import { Button } from '../ui/Button'
 import { TextField } from '../ui/fields'
 import { AlertIcon, CalendarIcon } from '../ui/icons'
@@ -10,10 +10,10 @@ import { localDay, localZoneLabel, scheduleToIso } from './mailModel'
 import { rememberedMoment, rememberMoment } from './lastMoment'
 import { Notice } from './Notice'
 
-// Every step up to R4 (« max relances » is 4 by default); the server refuses a rank beyond the setting.
-const STEPS = ['contact', 'r1', 'r2', 'r3', 'r4'] as const
+// The three e-mails of a sequence; the server refuses a rank beyond « max relances » when it was lowered.
+const STEPS = MESSAGE_STEPS
 type Step = (typeof STEPS)[number]
-const STEP_LABEL: Record<Step, string> = { contact: 'Contact', r1: 'R1', r2: 'R2', r3: 'R3', r4: 'R4' }
+const STEP_LABEL: Record<Step, string> = { contact: 'Contact', r1: 'R1', r2: 'R2' }
 
 // « Programmer une série »: a date and a time typed once, applied to the validated mail of the chosen step for every
 // prospect of the chosen cohorts — instead of typing them prospect by prospect. Drafts are never validated for the

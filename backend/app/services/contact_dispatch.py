@@ -95,17 +95,20 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.actor import ActorContext, ActorType
 from app.core.config import Settings, allowlist_permits
+from app.core.contact_steps import MAX_FOLLOW_UPS_LIMIT
 from app.models import ContactMessage, ContactSequence, ContactTracking, Prospect
 from app.models.enums import ContactabilityStatus, ContactMessageStatus, SendSource
 from app.services import app_settings, audit
 from app.services.audit import AuditAction, AuditContext, AuditSource
 from app.services.contact_message_cancellation import (
     DO_NOT_CONTACT_REASON,
+    cancel_message,
     cancel_unsent_messages,
     state_cancel_reason,
 )
 from app.services.contact_remote_drafts import sync_remote_draft
 from app.services.contact_schedule_trace import (
+    SEQUENCE_LIMIT,
     clear_doubt,
     forget_schedule_trace,
     leave_schedule,
@@ -1057,6 +1060,13 @@ def release(
     message.last_error_at = moment
     session.flush()
     _cancel_if_closed(session, message, moment, actor)
+    # An R3/R4 claimed before the three-e-mail rule: once its fate is known, it is cancelled.
+    if message.rank > MAX_FOLLOW_UPS_LIMIT and message.status is M.VALIDATED:
+        audit.annotate(
+            session, actor, message, AuditAction.CONTACT_MESSAGE_CANCELLED, reason=SEQUENCE_LIMIT
+        )
+        cancel_message(session, message, SEQUENCE_LIMIT, moment)
+        session.flush()
     _log("released", message, actor=actor.type.value)
     return message
 

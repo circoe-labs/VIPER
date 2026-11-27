@@ -9,6 +9,7 @@
 import {
   type Message,
   type MessageContent,
+  MESSAGE_STEPS,
   type MessageSequence,
   type MessageStep,
   UNCONFIRMED_SEND_CODES,
@@ -16,6 +17,7 @@ import {
 import type { TrackingStatus } from '../api/prospection'
 import type { ToolboxState } from '../api/toolbox'
 import { TRACKING_LABELS } from '../prospection/labels'
+import { rankOf } from '../prospects/sequenceModel'
 import { toolboxErrorLabel } from '../settings/toolboxCopy'
 import { inactiveSentence } from './dispatchCopy'
 import { formatDateTime, MESSAGE_STATUS_LABELS, stepLabel } from './labels'
@@ -110,6 +112,21 @@ export interface SequenceContext {
   state: TrackingStatus | null
   doNotContact: boolean
   closed: boolean
+  // The step is after the sequence's last one (an old R3/R4): kept for the history, never prepared again.
+  beyondLimit?: boolean
+}
+
+export const SEQUENCE_LIMIT_TEXT = 'Une séquence compte trois e-mails au plus (Contact, R1, R2)'
+
+// The facts of one step of a prospect's sequence.
+export function stepContext(sequence: MessageSequence, step: MessageStep): SequenceContext {
+  const rank = rankOf(step) ?? 0
+  return {
+    state: sequence.sequence.state,
+    doNotContact: sequence.sequence.do_not_contact,
+    closed: sequence.sequence.closed,
+    beyondLimit: rank > (sequence.sequence.max_follow_ups ?? MESSAGE_STEPS.length - 1),
+  }
 }
 
 // Why nothing can be prepared, validated or scheduled any more; null while the sequence is open.
@@ -191,6 +208,16 @@ export function mailActions(message: Message | null, sequence: SequenceContext, 
   }
   if (status === 'sent') {
     return { ...NONE, lock: 'Message envoyé : il reste consultable mais ne peut plus être modifié.' }
+  }
+  if (sequence.beyondLimit) {
+    // Nothing is written, validated or scheduled after the last step: what is not sent can only be withdrawn.
+    return {
+      ...NONE,
+      unschedule: status === 'scheduled',
+      cancel: status !== null && status !== 'cancelled',
+      remove: status !== null && status !== 'scheduled',
+      lock: `${SEQUENCE_LIMIT_TEXT} : cette étape n’est plus préparée ni envoyée.`,
+    }
   }
   if (status === 'cancelled') {
     return closed
@@ -309,6 +336,30 @@ export interface DispatchLine {
   text: string
 }
 
+// What an edit does to a validated or scheduled message, said beside the mail (never asked in a dialog): while the
+// change waits to be saved, then what was lost until it is validated or scheduled again. `invalidated` = this visit's
+// save (or restoration, or AI draft) removed a validation; a lost schedule is also kept by the server (`missed_*`).
+export function validationNotice(message: Message | null, pendingEdit: boolean, invalidated: boolean): string | null {
+  if (!message) return null
+  if (pendingEdit && message.status === 'scheduled') {
+    return `Modification en cours : une fois enregistrée, ce message ne sera plus programmé (envoi prévu le ${formatDateTime(message.scheduled_at ?? '')}) et devra être revalidé.`
+  }
+  if (pendingEdit && message.status === 'validated') {
+    return 'Modification en cours : une fois enregistrée, ce message devra être revalidé avant tout envoi.'
+  }
+  if (message.status !== 'draft' && message.status !== 'validated') return null
+  if (message.missed_reason === 'edited' && message.missed_scheduled_at) {
+    const again = message.status === 'draft' ? 'revalidez-le puis reprogrammez-le' : 'reprogrammez-le'
+    // A mail that may have left is never offered for a new send before the sent items were looked at.
+    const next = message.needs_sent_check ? `vérifiez d’abord les Envoyés (il est peut-être déjà parti), puis ${again}` : again
+    return `Plus programmé : la modification a retiré l’envoi prévu le ${formatDateTime(message.missed_scheduled_at)}. Pour qu’il parte, ${next}.`
+  }
+  if (message.status === 'draft' && invalidated) {
+    return 'Validation retirée par la modification : revalidez ce message avant tout envoi.'
+  }
+  return null
+}
+
 // What the scheduled send (S7) says under the status sentence, or null. `automatic` / `toolboxState` /
 // `latenessMinutes` come from the sequence's defaults.
 export function dispatchLine(
@@ -398,9 +449,10 @@ export function releaseAvailableAt(message: Message | null, claimTtlSeconds: num
   return at > now ? at : null
 }
 
-// `manual`, `prospect_state:<state>` or `do_not_contact` (decision 29 and the opposition).
+// `manual`, `prospect_state:<state>`, `do_not_contact` (decision 29 and the opposition) or `sequence_limit`.
 export function cancelReasonLabel(reason: string | null): string | null {
   if (reason === 'manual') return 'à la main'
+  if (reason === 'sequence_limit') return 'trois e-mails au plus : Contact, R1, R2'
   if (reason === 'do_not_contact') return 'opposition « Ne pas contacter »'
   const state = reason?.startsWith('prospect_state:') ? reason.slice('prospect_state:'.length) : null
   return state && state in TRACKING_LABELS ? `passage à « ${TRACKING_LABELS[state as TrackingStatus]} »` : null

@@ -362,18 +362,20 @@ def test_a_message_belongs_to_a_sequence_of_its_prospect(db_session: Session) ->
 # --- « max relances » ----------------------------------------------------------------------------
 
 
-def test_max_follow_ups_defaults_to_four_and_is_set_by_a_person(db_session: Session) -> None:
-    assert app_settings.max_follow_ups(db_session) == 4
+def test_max_follow_ups_defaults_to_two_and_is_only_lowered_by_a_person(
+    db_session: Session,
+) -> None:
+    assert app_settings.max_follow_ups(db_session) == 2
 
-    assert app_settings.set_max_follow_ups(db_session, OPERATOR, 2) == 2
-    app_settings.set_max_follow_ups(db_session, OPERATOR, 2)  # unchanged: no event
-    app_settings.set_max_follow_ups(db_session, OPERATOR, 3)
+    assert app_settings.set_max_follow_ups(db_session, OPERATOR, 1) == 1
+    app_settings.set_max_follow_ups(db_session, OPERATOR, 1)  # unchanged: no event
+    app_settings.set_max_follow_ups(db_session, OPERATOR, 2)
 
-    assert app_settings.max_follow_ups(db_session) == 3
+    assert app_settings.max_follow_ups(db_session) == 2
     with pytest.raises(InvalidFieldError) as out_of_range:
-        app_settings.set_max_follow_ups(db_session, OPERATOR, 21)
+        app_settings.set_max_follow_ups(db_session, OPERATOR, 3)
     with pytest.raises(ActorNotAllowedError):
-        app_settings.set_max_follow_ups(db_session, AGENT, 5)
+        app_settings.set_max_follow_ups(db_session, AGENT, 1)
     assert out_of_range.value.reason == "out_of_range"
     actions = [event.action for event in audit_events(db_session, entity_type="app_setting")]
     assert actions == ["app_setting.created", "app_setting.updated"]
@@ -384,12 +386,12 @@ def test_the_level_finishes_after_the_maximum(db_session: Session) -> None:
     sequence = contact_sequences.current_sequence(db_session, prospect.id)
     assert sequence is not None
     for rank in range(3):
+        assert prospect_sequence(db_session, prospect.id).progress.finished is False
         add_send(
             db_session, sequence, rank, datetime(2026, 9, 28, tzinfo=UTC) + timedelta(weeks=rank)
         )
 
-    assert prospect_sequence(db_session, prospect.id).progress.level_label == "R3"
-    app_settings.set_max_follow_ups(db_session, OPERATOR, 2)
+    # R2 sent: the three e-mails left.
     finished = prospect_sequence(db_session, prospect.id).progress
     assert (finished.finished, finished.level_label, finished.next_due_at) == (
         True,
@@ -553,7 +555,8 @@ def test_the_sql_next_due_date_rank_and_level_are_the_python_ones(db_session: Se
             sequence.end_reason = SequenceEndReason.COMPLETED
         if rng.random() < 0.15:
             alert(db_session, rng.choice([OPERATOR, AGENT]), prospect)
-    db_session.add(AppSetting(key="contact.max_follow_ups", value=3))
+    # A value stored before the three-e-mail rule: both twins read it as 2.
+    db_session.add(AppSetting(key="contact.max_follow_ups", value=4))
     db_session.flush()
 
     statement = join_sequence_sources(

@@ -85,7 +85,7 @@ function refused(status: number, detail: Record<string, unknown>): Promise<Respo
 const nameOf = (value: TaxonomyValue) => value.label
 
 export function stubSettingsApi(initial: Partial<Store> = {}, contactInitial: Partial<ContactStore> = {}) {
-  const contact: ContactStore = { cohorts: [S0], max_follow_ups: 4, ...structuredClone(contactInitial) }
+  const contact: ContactStore = { cohorts: [S0], max_follow_ups: 2, ...structuredClone(contactInitial) }
   const store: Store = {
     roles: [],
     'activity-categories': [],

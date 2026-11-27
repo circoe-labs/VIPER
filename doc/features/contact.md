@@ -52,7 +52,7 @@ flow at `/prospection?prospect=new`. Pagination remains 200 prospects per page.
 
 `GET /api/contact/overview` uses the same search/company/commercial-state/level predicates as
 `GET /api/contact/prospects?category=contacted`. Its histogram partitions each prospect once by the latest
-recorded send across all sequences: Contact, R1, R2, R3, R4 or later. The bars have no visible category labels;
+recorded send across all sequences: Contact, R1, R2 (old R3/R4 sends count in the last bar, « R2 et au-delà »). The bars have no visible category labels;
 their accessible descriptions identify the actual steps. Zero means a real zero, never a demo value.
 
 Each bar's old date annotation is displayed read-only as a historical marker. It is not a send date or a
@@ -88,7 +88,7 @@ Validation: `tests/test_contact_presentation.py`, Contact page component tests a
   under the do-not-contact opposition (409 `prospect_do_not_contact`: clear it first with `PUT …/contactability`) is
   never resumed by a cohort change: the change is refused.
 - **Level** = the number of messages **really sent** in the current sequence (`status = sent`, whatever their source):
-  0 → *Contact* to send, n → *Rn* to send, more than « max relances » (`/api/settings/contact`, default 4) →
+  0 → *Contact* to send, n → *Rn* to send, more than « max relances » (`/api/settings/contact`, 2) →
   « Relance terminée » (still contactable, out of the automatic actions). A drafted or scheduled message moves
   nothing. A current sequence closed `completed` (the former `failure`) is « Relance terminée » too.
 - **Next due date**: the cohort's date for the Contact, then the **Monday of the calendar week after the last send**
@@ -120,7 +120,7 @@ Validation: `tests/test_contact_presentation.py`, Contact page component tests a
 | POST | `/api/settings/cohorts` | `{"code": "S39", "starts_on": "2026-09-28"}` | 201 `Cohort` |
 | PATCH | `/api/settings/cohorts/{id}` | `{"code"?: "S40", "starts_on"?: "…"}` | `Cohort` (`needs_review` cleared) |
 | DELETE | `/api/settings/cohorts/{id}` | — | 204 (409 `in_use` once a sequence used it, 409 `cohort_s0_fixed`) |
-| GET / PUT | `/api/settings/contact` | `{"max_follow_ups": 4}` (0-20) | `{"max_follow_ups": 4}` |
+| GET / PUT | `/api/settings/contact` | `{"max_follow_ups": 2}` (0-2) | `{"max_follow_ups": 2}` |
 | GET | `/api/prospects/{id}/sequences` | — | `{"prospect_id", "place": Place, "sequences": [Sequence]}` (current first, then newest) |
 | PUT | `/api/prospects/{id}/cohort` | `{"cohort_id": "…" \| null}` | `{"place": Place, "changed", "resumed_from", "cancelled_messages", "in_flight_messages"}` |
 | GET | `/api/alerts` | query `prospect`, `company`, `type`, `state` (`open` default, `resolved`, `all`), `limit`, `offset` | `{"items": [Alert], "total", "limit", "offset"}` |
@@ -159,23 +159,19 @@ Query: `week` (`YYYY-Www`, default the current business week), `cohort` (a cohor
   "today": "2026-10-01",
   "current_week": "2026-W40",
   "week": {"week": "2026-W40", "monday": "2026-09-28", "sunday": "2026-10-04", "is_current": true},
-  "max_follow_ups": 4,
+  "max_follow_ups": 2,
   "to_send": {
     "total": 4, "overdue": 1,
     "groups": [
       {"rank": 0, "step": "contact", "step_label": "Contact", "count": 2, "overdue": 0},
       {"rank": 1, "step": "r1", "step_label": "R1", "count": 0, "overdue": 0},
-      {"rank": 2, "step": "r2", "step_label": "R2", "count": 1, "overdue": 1},
-      {"rank": 3, "step": "r3", "step_label": "R3", "count": 1, "overdue": 0},
-      {"rank": 4, "step": "r4", "step_label": "R4", "count": 0, "overdue": 0}
+      {"rank": 2, "step": "r2", "step_label": "R2", "count": 1, "overdue": 1}
     ]
   },
   "levels": [
     {"level": "contact_pending", "label": "Contact à envoyer", "count": 5},
     {"level": "contact_sent", "label": "Contact envoyé", "count": 1},
     {"level": "r1_sent", "label": "R1 envoyée", "count": 1},
-    {"level": "r2_sent", "label": "R2 envoyée", "count": 1},
-    {"level": "r3_sent", "label": "R3 envoyée", "count": 1},
     {"level": "finished", "label": "Relance terminée", "count": 1}
   ],
   "categories": [
@@ -239,7 +235,7 @@ opposition).
 
 **Cohorts** (`cohorts`): each cohort holding current prospects under the filters, oldest date first, S0 last:
 `prospects` (current cohort), `in_sequence`, `to_send` / `overdue` (in the week), and its sequences in progress by
-level (`levels`, every key with its count; empty for S0) — a person sees e.g. S37 at « R3 envoyée ».
+level (`levels`, every key with its count; empty for S0) — a person sees e.g. S37 at « R1 envoyée ».
 
 **Weeks** (`weeks`): the ISO weeks holding actionable next due dates (overdue ones included), oldest first — the
 week selector's options.
@@ -302,15 +298,30 @@ and changes the state with `PATCH /api/prospects/{id}/tracking`.
 dispatcher, left to it — they may still leave). Both are 0 when nothing closed the sequence; `POST /api/prospects`
 answers the plain view.
 
+## Three e-mails: Contact, R1, R2
+
+A sequence is **three e-mails at most** (confirmed 2026-11-27; `contact_steps.MAX_FOLLOW_UPS_LIMIT = 2`, the one owner).
+
+- « Max relances » can only lower it (0-2, 422 above). A stored value above 2 reads as 2 (Python and SQL twins).
+- R2 sent = « Relance terminée »: nothing due, nothing prepared, scheduled, drafted by the AI or marked as sent after
+  it, from the UI, the API or MCP.
+- Old R3/R4 **sends** stay in history (editor tab, history, chart bar « R2 et au-delà »).
+- Migration `0062` cancels the unsent messages beyond R2 (`cancel_reason = sequence_limit`, audited), queues their
+  Infomaniak draft for deletion, keeps a scheduled one's moment in the `missed_*` trace (lists say « R3 · Annulé ») and
+  lowers a stored setting. A message claimed by the dispatcher at that time is left alone: a person settles it, and
+  « Remettre en Validé » then cancels it. The downgrade restores nothing.
+- The editor shows a step beyond the limit read-only (no « Rouvrir », « Valider », « Programmer »); only
+  unscheduling, cancelling and deleting an unsent one remain.
+
 ## Mail sequence — `/api/prospects/{prospect_id}/messages`
 
 One durable message per **sequence and rank** (rework D6; H-20); the routes address the ranks of the prospect's
 **current open sequence** by step code `contact` (0) | `r1` (1) | `r2` (2) | … | `r<max>`, up to « max relances »
-(`/api/settings/contact`, 4 by default; sequences rework S3, [R-21](../product/decision-log.md#sequences-rework-decisions-import-excel-and-contact-sequences-2026-10-01)).
+(`/api/settings/contact`, 2 at most; sequences rework S3, [R-21](../product/decision-log.md#sequences-rework-decisions-import-excel-and-contact-sequences-2026-10-01)).
 Codes and labels (« Contact », « R1 »…) come from `app/core/contact_steps.py`, shared by every API. A rank beyond the
-maximum is refused for anything that prepares a mail — create, edit, validate, schedule, reopen, AI drafting: 409
-`rank_beyond_max` (with `max_follow_ups`); a message kept there after the maximum was lowered stays readable,
-unschedulable and cancellable. A malformed code (`r0`, `R1`, `r100`) is FastAPI's 422. No step ordering is enforced (R1 can be prepared before the Contact mail is sent). Message statuses: `draft` (Brouillon),
+maximum is refused for anything that prepares or records a mail — create, edit, validate, schedule, reopen, remote
+draft, AI drafting, « Marquer comme envoyé »: 409 `rank_beyond_max` (with `max_follow_ups`); an old R3/R4 (or a message
+kept after the maximum was lowered) stays readable, unschedulable and cancellable ([§ Three e-mails](#three-e-mails-contact-r1-r2)). A malformed code (`r0`, `R1`, `r100`) is FastAPI's 422. No step ordering is enforced (R1 can be prepared before the Contact mail is sent). Message statuses: `draft` (Brouillon),
 `validated` (Validé), `scheduled` (Programmé), `sent` (Envoyé), `cancelled` (Annulé) — distinct from the prospect's
 state. A `sent` message is a real send and counts for the level.
 
@@ -348,8 +359,8 @@ draft|validated|scheduled --cancel--> cancelled --reopen--> draft (revision+1)
   should always send it), a replay on a rank already sent answers that send (200, `created: false`,
   `changed: false`, no audit, nothing moves); another unsent rank than the next is refused (409 `rank_not_next`, with
   `next_rank` and `next_step`). Without `rank` every call records the next step. Concurrent declarations serialize on
-  the sequence row. After R<max> the sequence is « Relance terminée » (nothing due), but a further send may still be
-  declared (the prospect stays contactable).
+  the sequence row. After R<max> the sequence is « Relance terminée » (nothing due) and no further send can be
+  declared (409 `rank_beyond_max`; replaying a recorded one stays harmless).
   A send the dispatcher could not confirm (a person found the mail in the mailbox) is settled with the per-step route
   `POST …/messages/{step}/mark-sent` (S7, [§ Scheduled sending](#scheduled-sending-s7)): it does not declare a new
   step and only applies to a claimed message (409 `dispatch_not_unconfirmed` otherwise).
@@ -400,7 +411,7 @@ draft|validated|scheduled --cancel--> cancelled --reopen--> draft (revision+1)
                "toolbox_connected": false, "toolbox_state": "disabled", "automatic_sending_active": false,
                "dispatch_reason": "toolbox_disabled", "dispatch_max_lateness_minutes": 360, "dispatch_claim_ttl_seconds": 600},
   "steps": [{"rank": 0, "step": "contact", "label": "Contact", "message": {"…": "…"}},
-            {"rank": 1, "step": "r1", "label": "R1", "message": null}, "… up to r4"]
+            {"rank": 1, "step": "r1", "label": "R1", "message": null}, "… up to r2"]
 }
 ```
 
@@ -1273,10 +1284,19 @@ step tab or the prospect is left (and before « Valider », « Générer », « 
 not created until something is typed. A mail no longer blocks leaving the prospect (only the follow-up state does); a reload or
 a closed tab still warns about a mail not yet saved.
 
-**Validated or scheduled messages** (decided: the safest option): the first edit opens a confirmation (« Modifier le message ? —
-il repasse en Brouillon, il faudra le revalider »); cancelled, the typed text is dropped and nothing is sent; confirmed, the edit
-is applied and autosaved, and the backend puts the message back to Draft as before (`unvalidated: true`, the validation and the
-Infomaniak draft are dropped exactly as for a manual save). Nothing is silently unvalidated.
+**Validated or scheduled messages** (changed 2026-11-27, user feedback): no confirmation. The edit is applied and
+autosaved; the backend puts the message back to Draft (`unvalidated: true`: validation, schedule and Infomaniak draft
+dropped) and sending still needs a new validation. It is said **inline**, above the subject (`validationNotice`):
+
+- while the change waits to be saved: it will lose the validation — for a scheduled message, « ne sera plus programmé
+  (envoi prévu le …) »;
+- after the save: « Plus programmé : la modification a retiré l'envoi prévu le … » (from the server's `missed_*` trace,
+  `missed_reason = edited`, so it survives a reload and stays until rescheduled), or « Validation retirée par la
+  modification » for a message that was only validated (kept for the visit).
+
+Nothing is unscheduled by opening, focusing or leaving a field: only a text differing from the saved one is saved, and
+typing back to the saved text drops the pending change. Restoring a version over a validated or scheduled message still
+asks (one explicit action), as does an AI redraft.
 
 « Valider… » (and « Valider et programmer… ») saves what is typed, then validates **that** revision; « Enregistrer et valider »
 no longer exists. Regenerating a draft no longer asks (the previous text stays in the versions); only a **validated** message

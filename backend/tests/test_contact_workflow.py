@@ -92,7 +92,7 @@ def test_state_groups() -> None:
     )
     assert TERMINAL_STATES == (S.IGNORED,)
     assert HUMAN_ONLY_STATES == (S.DISQUALIFIED, S.NOT_INTERESTED)
-    assert DEFAULT_MAX_FOLLOW_UPS == 4
+    assert DEFAULT_MAX_FOLLOW_UPS == 2
 
 
 def test_steps_are_named_from_their_rank() -> None:

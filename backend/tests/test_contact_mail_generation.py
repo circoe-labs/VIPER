@@ -780,16 +780,13 @@ def test_the_ai_drafts_a_later_rank_from_the_earlier_ones(
 ) -> None:
     sequence = contact_sequences.current_sequence(db_session, prospect)
     assert sequence is not None
-    for rank in range(3):
-        add_send(
-            db_session, sequence, rank, datetime(2026, 9, 7, 9, tzinfo=UTC) + timedelta(weeks=rank)
-        )
+    add_send(db_session, sequence, 0, datetime(2026, 9, 7, 9, tzinfo=UTC))
     contact_messages.save_message(
         db_session,
         OPERATOR,
         prospect,
-        3,
-        MessageEdit(subject="Objet R3", body_text="Corps R3 écrit à la main"),
+        1,
+        MessageEdit(subject="Objet R1", body_text="Corps R1 écrit à la main"),
         default_from=SENDER,
     )
     before = level_of(db_session, prospect)
@@ -797,13 +794,13 @@ def test_the_ai_drafts_a_later_rank_from_the_earlier_ones(
         select(ContactTracking.status).where(ContactTracking.prospect_id == prospect)
     )
 
-    body = ok(generate(client, prospect, "r3", expected_revision=1, replace=True))
+    body = ok(generate(client, prospect, "r1", expected_revision=1, replace=True))
 
-    assert (body["message"]["rank"], body["message"]["status"]) == (3, "draft")
+    assert (body["message"]["rank"], body["message"]["status"]) == (1, "draft")
     [prompt] = fake.prompts
-    assert "Étape : R3" in prompt.input
-    assert "relance R3, courte" in prompt.instructions
-    assert "Corps R3 écrit à la main" in prompt.input  # the current version, to replace
+    assert "Étape : R1" in prompt.input
+    assert "première relance (R1), courte" in prompt.instructions
+    assert "Corps R1 écrit à la main" in prompt.input  # the current version, to replace
     db_session.expire_all()
     assert level_of(db_session, prospect) == before
     assert (
@@ -823,10 +820,10 @@ def test_the_ai_drafts_a_later_rank_from_the_earlier_ones(
 def test_the_last_follow_up_is_drafted_as_the_last(
     ai_app: Any, client: TestClient, prospect: uuid.UUID, fake: FakeGenerator
 ) -> None:
-    ok(generate(client, prospect, "r4"), 201)
+    ok(generate(client, prospect, "r2"), 201)
 
     [prompt] = fake.prompts
-    assert "dernière relance (R4)" in prompt.instructions
+    assert "dernière relance (R2)" in prompt.instructions
 
 
 def test_the_ai_cannot_draft_beyond_the_maximum(
@@ -838,7 +835,7 @@ def test_the_ai_cannot_draft_beyond_the_maximum(
 ) -> None:
     before = snapshot(db_session)
 
-    refused(generate(client, prospect, "r5"), 409, "rank_beyond_max")
+    refused(generate(client, prospect, "r3"), 409, "rank_beyond_max")
 
     assert fake.prompts == []
     assert snapshot(db_session) == before

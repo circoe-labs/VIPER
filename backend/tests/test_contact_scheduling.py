@@ -50,21 +50,21 @@ def week_scene(session: Session) -> dict[str, uuid.UUID]:
     people = {
         # R2 overdue (S37, 2 sent), nothing written: forgotten, `none`.
         "overdue": person(session, "Aaa", cohort=S37, sends=weekly(date(2026, 9, 7), 2)),
-        # R3 due this week, a draft: forgotten, `draft`.
-        "draft": person(session, "Bbb", cohort=S37, sends=weekly(date(2026, 9, 7), 3)),
+        # R1 due this week, a draft: forgotten, `draft`.
+        "draft": person(session, "Bbb", cohort=S37, sends=(at(date(2026, 9, 21)),)),
         # Contact due this week, validated but not scheduled: forgotten, `validated`.
         "validated": person(session, "Ccc", cohort=S39),
         # Contact due this week, scheduled: not forgotten.
         "scheduled": person(session, "Ddd", cohort=S39),
-        # R4 not due before next week, scheduled ahead: counted, not due, not forgotten.
-        "ahead": person(session, "Eee", cohort=S37, sends=weekly(date(2026, 9, 7), 4)),
+        # R2 not due before next week, scheduled ahead: counted, not due, not forgotten.
+        "ahead": person(session, "Eee", cohort=S37, sends=weekly(date(2026, 9, 21), 2)),
         # The next cohort: Contact scheduled for its Monday.
         "next_cohort": person(session, "Fff", cohort=S40),
     }
-    prepare(session, people["draft"], 3, M.DRAFT)
+    prepare(session, people["draft"], 1, M.DRAFT)
     prepare(session, people["validated"], 0, M.VALIDATED)
     prepare(session, people["scheduled"], 0, M.SCHEDULED, at(date(2026, 10, 2), 9))
-    prepare(session, people["ahead"], 4, M.SCHEDULED, at(date(2026, 10, 6), 9))
+    prepare(session, people["ahead"], 2, M.SCHEDULED, at(date(2026, 10, 6), 9))
     prepare(session, people["next_cohort"], 0, M.SCHEDULED, at(date(2026, 10, 6), 14))
     return people
 
@@ -76,10 +76,10 @@ def test_counts_by_step_and_state(db_session: Session) -> None:
 
     steps = {step.step: step for step in result.steps}
     assert (steps["contact"].scheduled, steps["contact"].validated) == (2, 1)
-    assert (steps["r3"].drafts, steps["r4"].scheduled) == (1, 1)
+    assert (steps["r1"].drafts, steps["r2"].scheduled) == (1, 1)
     assert (result.totals.scheduled, result.totals.validated, result.totals.drafts) == (3, 1, 1)
-    # Due this week: two Contact, the overdue R2 and R3 (the R4 and the S40 Contact are next week).
-    assert (steps["contact"].due, steps["r2"].due, steps["r3"].due) == (2, 1, 1)
+    # Due this week: two Contact, the overdue R2 and R1 (the other R2, S40: next week).
+    assert (steps["contact"].due, steps["r2"].due, steps["r1"].due) == (2, 1, 1)
     assert result.totals.due == 4
     assert result.totals.forgotten == 3
 
@@ -92,13 +92,13 @@ def test_forgotten_say_what_is_missing(db_session: Session) -> None:
     found = {(item.id, item.step, item.state, item.overdue) for item in result.forgotten}
     assert found == {
         (people["overdue"], "r2", "none", True),
-        (people["draft"], "r3", "draft", False),
+        (people["draft"], "r1", "draft", False),
         (people["validated"], "contact", "validated", False),
     }
     # The overdue step comes first (default order: by due date).
     assert result.forgotten[0].id == people["overdue"]
     steps = {step.step: step for step in result.steps}
-    assert (steps["r2"].forgotten_none, steps["r3"].forgotten_draft) == (1, 1)
+    assert (steps["r2"].forgotten_none, steps["r1"].forgotten_draft) == (1, 1)
     assert steps["contact"].forgotten_validated == 1
 
 
@@ -109,7 +109,7 @@ def test_scheduled_by_business_day_with_the_steps(db_session: Session) -> None:
 
     assert [(day.day, day.total, day.by_step, day.past) for day in result.days] == [
         (date(2026, 10, 2), 1, {"contact": 1}, False),
-        (date(2026, 10, 6), 2, {"contact": 1, "r4": 1}, False),
+        (date(2026, 10, 6), 2, {"contact": 1, "r2": 1}, False),
     ]
 
 
@@ -139,7 +139,7 @@ def test_messages_list_whose_each_prepared_mail_is(db_session: Session) -> None:
     result = overview(db_session, CLOCK, now=datetime(2026, 10, 1, 9, tzinfo=UTC))
 
     found = {(item.prospect_id, item.step, item.status) for item in result.messages}
-    assert (people["draft"], "r3", "draft") in found
+    assert (people["draft"], "r1", "draft") in found
     assert (people["validated"], "contact", "validated") in found
     assert (people["scheduled"], "contact", "scheduled") in found
     assert len(result.messages) == 5
@@ -157,7 +157,7 @@ def test_http_contract(client: TestClient, db_session: Session) -> None:
     assert answer.status_code == 200
     body = answer.json()
     assert body["totals"]["scheduled"] >= 3
-    assert {"contact", "r1", "r4"} <= {step["step"] for step in body["steps"]}
+    assert {"contact", "r1", "r2"} <= {step["step"] for step in body["steps"]}
     assert all(item["state"] in ("none", "draft", "validated") for item in body["forgotten"])
     assert client.get(URL, params={"week": "pas-une-semaine"}).status_code == 422
     assert client.get(URL, params={"week": "2026-W41"}).status_code == 200

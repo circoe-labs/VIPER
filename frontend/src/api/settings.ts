@@ -44,11 +44,11 @@ export interface Cohort {
 }
 
 export interface ContactSettings {
-  // After R<max> is sent, the prospect is « Relance terminée » (0 … 20, 4 by default).
+  // After R<max> is sent, the prospect is « Relance terminée » (0 … 2, 2 by default: three e-mails at most).
   max_follow_ups: number
 }
 
-export const MAX_FOLLOW_UPS_LIMIT = 20
+export const MAX_FOLLOW_UPS_LIMIT = 2
 
 export type ActiveFilter = 'all' | 'active' | 'inactive'
 

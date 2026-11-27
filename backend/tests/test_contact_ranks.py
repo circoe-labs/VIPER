@@ -21,12 +21,12 @@ from app.core.contact_steps import (
     step_code,
     step_label,
 )
-from app.models import ContactMessage
+from app.models import AppSetting, ContactMessage
 from app.models.enums import ContactMessageStatus, ContactTrackingStatus, SequenceEndReason
 from app.services import app_settings, contact_sequences
 from app.services import contact_messages as service
 from app.services.contact_messages import MessageEdit
-from app.services.errors import ContactMessageError
+from app.services.errors import ContactMessageError, InvalidFieldError
 from tests.builders import OPERATOR, add_cohort, audit_events
 from tests.test_contact_messages import COMPLETE, prospect_with
 from tests.test_contact_messages_api import messages, ok, refused
@@ -88,38 +88,58 @@ def test_levels_follow_the_real_sends_up_to_the_maximum() -> None:
 # --- ranks up to « max relances » ---------------------------------------------------------------
 
 
-def test_every_rank_up_to_the_maximum_can_be_prepared(db_session: Session) -> None:
+def old_message(session: Session, prospect_id: uuid.UUID, rank: int) -> ContactMessage:
+    """A draft beyond R2, as written before the three-e-mail rule."""
+    sequence = contact_sequences.current_sequence(session, prospect_id)
+    assert sequence is not None
+    message = ContactMessage(
+        prospect_id=prospect_id,
+        sequence_id=sequence.id,
+        rank=rank,
+        subject="Ancien objet",
+        body_text="Ancien corps",
+        to_recipients=["jean.test@exemple.example"],
+    )
+    session.add(message)
+    session.flush()
+    session.refresh(message)
+    return message
+
+
+def test_three_e_mails_can_be_prepared_and_no_more(db_session: Session) -> None:
     prospect = prospect_with(db_session)
 
-    for rank in range(5):
+    for rank in range(3):
         message = service.save_message(db_session, OPERATOR, prospect.id, rank, COMPLETE).message
         assert (message.rank, message.step, message.status) == (rank, step_code(rank), M.DRAFT)
-    r4 = service.validate(db_session, OPERATOR, prospect.id, 4, 1).message
-    assert service.schedule(db_session, OPERATOR, prospect.id, 4, r4.revision, LATER).message
+    r2 = service.validate(db_session, OPERATOR, prospect.id, 2, 1).message
+    assert service.schedule(db_session, OPERATOR, prospect.id, 2, r2.revision, LATER).message
 
+    for rank in (3, 4):
+        with pytest.raises(ContactMessageError) as refused_:
+            service.save_message(db_session, OPERATOR, prospect.id, rank, COMPLETE)
+        assert code_of(refused_) == "rank_beyond_max"
+        assert refused_.value.details["max_follow_ups"] == 2
+    with pytest.raises(InvalidFieldError):
+        set_max(db_session, 3)
+
+
+def test_a_stored_maximum_above_two_changes_nothing(db_session: Session) -> None:
+    db_session.add(AppSetting(key="contact.max_follow_ups", value=4))
+    db_session.flush()
+    prospect = prospect_with(db_session)
+
+    assert app_settings.max_follow_ups(db_session) == 2
     with pytest.raises(ContactMessageError) as refused_:
-        service.save_message(db_session, OPERATOR, prospect.id, 5, COMPLETE)
+        service.save_message(db_session, OPERATOR, prospect.id, 3, COMPLETE)
     assert code_of(refused_) == "rank_beyond_max"
-    assert refused_.value.details["max_follow_ups"] == 4
-
-
-def test_raising_the_maximum_opens_later_ranks(db_session: Session) -> None:
-    prospect = prospect_with(db_session)
-    set_max(db_session, 6)
-
-    message = service.save_message(db_session, OPERATOR, prospect.id, 6, COMPLETE).message
-
-    assert (message.rank, message.step) == (6, "r6")
     read = service.prospect_messages(db_session, prospect.id, None)
-    assert [item.step for item in read.messages] == [step_code(rank) for rank in range(7)]
+    assert [item.step for item in read.messages] == ["contact", "r1", "r2"]
 
 
-def test_a_message_beyond_a_lowered_maximum_stays_readable_and_cancellable(
-    db_session: Session,
-) -> None:
+def test_an_old_r3_stays_readable_and_cancellable_only(db_session: Session) -> None:
     prospect = prospect_with(db_session)
-    r3 = service.save_message(db_session, OPERATOR, prospect.id, 3, COMPLETE).message
-    set_max(db_session, 2)
+    r3 = old_message(db_session, prospect.id, 3)
 
     read = service.prospect_messages(db_session, prospect.id, None)
     assert [(item.rank, item.message is not None) for item in read.messages] == [
@@ -208,7 +228,6 @@ def test_both_send_paths_record_the_same_send(db_session: Session) -> None:
 
 def test_reaching_the_maximum_finishes_the_sequence(db_session: Session) -> None:
     prospect = prospect_with(db_session)
-    set_max(db_session, 2)
     start = datetime(2026, 9, 7, 9, tzinfo=UTC)
     for rank in range(3):
         service.mark_sent(
@@ -223,15 +242,16 @@ def test_reaching_the_maximum_finishes_the_sequence(db_session: Session) -> None
         "finished",
     )
     assert (place.progress.level_label, place.progress.next_due_at) == ("Relance terminée", None)
-    # Still contactable: one more send can be declared, nothing becomes due.
-    later = service.mark_sent(db_session, OPERATOR, prospect.id, rank=3)
-    assert later.message.rank == 3
-    assert contact_sequences.prospect_sequence(db_session, prospect.id).progress.next_due_at is None
+    # No fourth e-mail can be declared; replaying the R2 send stays harmless.
+    with pytest.raises(ContactMessageError) as refused_:
+        service.mark_sent(db_session, OPERATOR, prospect.id, rank=3)
+    assert code_of(refused_) == "rank_beyond_max"
+    assert service.mark_sent(db_session, OPERATOR, prospect.id, rank=2).changed is False
 
 
 def test_lowering_the_maximum_finishes_sequences_already_past_it(db_session: Session) -> None:
     prospect = prospect_with(db_session)
-    for rank in range(3):
+    for rank in range(2):
         service.mark_sent(
             db_session,
             OPERATOR,
@@ -239,11 +259,11 @@ def test_lowering_the_maximum_finishes_sequences_already_past_it(db_session: Ses
             rank=rank,
             sent_at=datetime(2026, 9, 7, 9, tzinfo=UTC) + timedelta(weeks=rank),
         )
-    assert level_of(db_session, prospect.id) == (3, 3, False)
+    assert level_of(db_session, prospect.id) == (2, 2, False)
 
-    set_max(db_session, 2)
+    set_max(db_session, 1)
 
-    assert level_of(db_session, prospect.id) == (3, None, True)
+    assert level_of(db_session, prospect.id) == (2, None, True)
 
 
 # --- change of cohort ---------------------------------------------------------------------------
@@ -257,7 +277,7 @@ def test_a_cohort_change_cancels_the_unsent_messages_and_keeps_the_history(
     r1 = service.save_message(db_session, OPERATOR, prospect.id, 1, COMPLETE).message
     service.validate(db_session, OPERATOR, prospect.id, 1, r1.revision)
     service.schedule(db_session, OPERATOR, prospect.id, 1, r1.revision, LATER)
-    service.save_message(db_session, OPERATOR, prospect.id, 3, COMPLETE)
+    service.save_message(db_session, OPERATOR, prospect.id, 2, COMPLETE)
     old = contact_sequences.current_sequence(db_session, prospect.id)
     assert old is not None
 
@@ -274,7 +294,7 @@ def test_a_cohort_change_cancels_the_unsent_messages_and_keeps_the_history(
     assert [(row.rank, row.status, row.cancel_reason) for row in rows] == [
         (0, M.SENT, None),
         (1, M.CANCELLED, "sequence_closed"),
-        (3, M.CANCELLED, "sequence_closed"),
+        (2, M.CANCELLED, "sequence_closed"),
     ]
     assert old.end_reason is SequenceEndReason.COHORT_CHANGED
     # The new sequence starts at the Contact; the old one stays in the history.
@@ -292,25 +312,19 @@ def test_ranks_over_http(client: TestClient, db_session: Session) -> None:
     person = prospect_with(db_session)
     path = messages(person.id)
 
-    created = ok(client.put(f"{path}/r3", json={"subject": "Objet R3"}), 201)
-    assert (created["message"]["rank"], created["message"]["step"]) == (3, "r3")
-    assert created["message"]["step_label"] == "R3"
-    refused(client.put(f"{path}/r5", json={"subject": "Trop loin"}), 409, "rank_beyond_max")
+    created = ok(client.put(f"{path}/r2", json={"subject": "Objet R2"}), 201)
+    assert (created["message"]["rank"], created["message"]["step"]) == (2, "r2")
+    assert created["message"]["step_label"] == "R2"
+    refused(client.put(f"{path}/r3", json={"subject": "Trop loin"}), 409, "rank_beyond_max")
 
     first = ok(client.post(f"{path}/mark-sent", json={"rank": 0}), 201)
     replay = ok(client.post(f"{path}/mark-sent", json={"rank": 0}), 200)
     assert (replay["changed"], replay["message"]["id"]) == (False, first["message"]["id"])
-    detail = refused(client.post(f"{path}/mark-sent", json={"rank": 3}), 409, "rank_not_next")
+    detail = refused(client.post(f"{path}/mark-sent", json={"rank": 2}), 409, "rank_not_next")
     assert (detail["next_rank"], detail["next_step"]) == (1, "r1")
     assert client.post(f"{path}/mark-sent", json={"rank": -1}).status_code == 422
 
     body = ok(client.get(path))
     assert (body["sequence"]["sent_count"], body["sequence"]["next_step"]) == (1, "r1")
     assert body["sequence"]["level"] == "contact_sent"
-    assert [step["message"] is not None for step in body["steps"]] == [
-        True,
-        False,
-        False,
-        True,
-        False,
-    ]
+    assert [step["message"] is not None for step in body["steps"]] == [True, False, True]

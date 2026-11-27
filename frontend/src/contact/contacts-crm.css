@@ -51,11 +51,11 @@
 .contacts-chart__grid > div { position: relative; display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: center; height: 0; gap: 12px; }
 .contacts-chart__grid span { color: var(--nc-contacts-muted); font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
 .contacts-chart__grid i { border-top: 1px solid var(--nc-contacts-grid); }
-.contacts-chart__bars { position: absolute; inset: 0 0 0 52px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 20px; }
+.contacts-chart__bars { position: absolute; inset: 0 0 0 52px; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 20px; }
 .contacts-chart__column { height: 100%; display: flex; align-items: flex-end; justify-content: center; }
 .contacts-chart__bar { position: relative; width: min(64%, 90px); min-height: 0; border-radius: 2px 2px 0 0; }
 .contacts-chart__bar > span { position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); color: var(--nc-contacts-text); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.contacts-chart__labels { margin-left: 52px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 20px; color: var(--nc-contacts-muted); font-size: 12px; text-align: center; }
+.contacts-chart__labels { margin-left: 52px; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 20px; color: var(--nc-contacts-muted); font-size: 12px; text-align: center; }
 
 
 .contacts-panel .cohort-section__toggle { padding: 18px 20px; border-radius: 10px; font-size: 16px; }

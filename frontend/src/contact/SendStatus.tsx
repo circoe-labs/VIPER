@@ -27,7 +27,7 @@ function copyOf(send: SendSituation): Copy {
       return { badge: 'Non parti', tone: 'danger', icon: AlertIcon, dated: 'prévu le' }
     case 'unscheduled':
       return {
-        badge: send.reason === 'cancelled' ? 'Annulé' : 'Déprogrammé',
+        badge: send.reason === 'cancelled' || send.reason === 'sequence_limit' ? 'Annulé' : 'Déprogrammé',
         tone: 'neutral',
         icon: MinusCircleIcon,
         dated: 'prévu le',

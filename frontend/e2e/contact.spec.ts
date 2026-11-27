@@ -132,9 +132,8 @@ test('operator flow: draft, validate, schedule, unschedule, edit back to draft, 
   await expect(mailTab(page, 'Contact')).toContainText('Validé')
 
   // An edit of a validated message says it goes back to draft, and does.
-  // The first edit asks (it puts the message back to Brouillon), then the draft saves itself.
+  // No confirmation: the draft saves itself and says the validation is gone.
   await page.getByRole('textbox', { name: 'Objet' }).fill('Transport de vos marchandises (test, v2)')
-  await confirm(page, /Modifier le message Contact/, 'Modifier le message')
   await page.getByRole('textbox', { name: 'Corps' }).focus()
   await expect(mailTab(page, 'Contact')).toContainText('Brouillon')
   await expect(page.getByRole('textbox', { name: 'Objet' })).toHaveValue('Transport de vos marchandises (test, v2)')

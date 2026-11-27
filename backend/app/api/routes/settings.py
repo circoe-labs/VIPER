@@ -123,7 +123,7 @@ class ContactSettingsIn(StrictModel):
 
 
 class ContactSettingsOut(BaseModel):
-    # After R<max> is sent, the prospect is « Relance terminée » (4 by default).
+    # After R<max> is sent, the prospect is « Relance terminée » (2 by default, never more).
     max_follow_ups: int
 
 

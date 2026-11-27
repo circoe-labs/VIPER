@@ -161,7 +161,7 @@ and source (`uq_quality_alerts_open_email_error`). An alert never changes a stat
 ## `app_settings`
 
 One row per known key (CHECK `ck_app_settings_known_key`), `value jsonb`; a missing row = the default. Today only
-`contact.max_follow_ups` (« max relances », default 4, 0-20), edited by a person in Paramètres.
+`contact.max_follow_ups` (« max relances », default 2, 0-2: three e-mails per sequence), edited by a person in Paramètres.
 
 ## `contact_messages`
 

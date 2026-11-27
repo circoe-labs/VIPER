@@ -36,7 +36,7 @@ export function parseView(params: URLSearchParams): ContactView {
   const status = params.get('status')
   const validStatus = status !== null && (
     TRACKING_STATUSES.some((value) => status === `state:${value}`) ||
-    /^level:(contact_pending|contact_sent|r(?:[1-9]|1\d|20)_sent|finished)$/.test(status)
+    /^level:(contact_pending|contact_sent|r1_sent|finished)$/.test(status)
   )
   return {
     view: CONTACT_VIEWS.find((key) => key === asked) ?? legacy,

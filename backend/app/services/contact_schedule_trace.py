@@ -25,7 +25,10 @@ from app.models.enums import ContactMessageStatus
 UNSCHEDULED_BY_PERSON = "unscheduled_by_person"
 EDITED = "edited"
 CANCELLED = "cancelled"
-BY_PERSON = frozenset({UNSCHEDULED_BY_PERSON, EDITED, CANCELLED})
+# Cancelled by the three-e-mail rule (R3 and beyond); also the message's `cancel_reason`.
+SEQUENCE_LIMIT = "sequence_limit"
+# Taken back on purpose: nothing to recover.
+BY_PERSON = frozenset({UNSCHEDULED_BY_PERSON, EDITED, CANCELLED, SEQUENCE_LIMIT})
 
 # Dispatcher codes after which the mail may have left all the same.
 SENT_CHECK_REASONS = frozenset({"send_not_confirmed", "send_draft_not_found", "send_probably_sent"})

@@ -81,7 +81,7 @@ def test_the_sequence_read_model(
         "sequence_id": sequence_id,
         "out_of_campaign": False,
         "closed": False,
-        "max_follow_ups": 4,
+        "max_follow_ups": 2,
         "sent_count": 0,
         "next_rank": 0,
         "next_step": "contact",
@@ -102,14 +102,13 @@ def test_the_sequence_read_model(
         "dispatch_claim_ttl_seconds": 600,
         "humanizer": {"enabled": False, "configured": False, "min_score": 70},
     }
-    # Every step from the Contact to R<max> (« max relances », 4 by default).
+    # Every step from the Contact to R<max> (« max relances », 2 by default).
     assert body["steps"] == [
         {"rank": rank, "step": step, "label": label, "message": None}
-        for rank, (step, label) in enumerate(
-            [("contact", "Contact"), ("r1", "R1"), ("r2", "R2"), ("r3", "R3"), ("r4", "R4")]
-        )
+        for rank, (step, label) in enumerate([("contact", "Contact"), ("r1", "R1"), ("r2", "R2")])
     ]
     assert ok(client.get(f"{messages(prospect)}/r1")) == {"message": None}
+    # A step beyond the limit stays readable (an old R3/R4).
     assert ok(client.get(f"{messages(prospect)}/r4")) == {"message": None}
     refused(client.get(messages(uuid.uuid4())), 404, "not_found")
     for malformed in ("r0", "R1", "rank1", "r100", "-1"):

@@ -85,6 +85,7 @@ from app.services.audit import AuditAction
 from app.services.contact_message_cancellation import NOTHING, Cancellation, cancel_unsent_messages
 from app.services.contact_workflow import (
     DEFAULT_MAX_FOLLOW_UPS,
+    MAX_FOLLOW_UPS_LIMIT,
     Progress,
     SequenceFacts,
     progress,
@@ -524,7 +525,9 @@ def max_follow_ups_sql() -> ColumnElement[int]:
         .where(AppSetting.key == MAX_FOLLOW_UPS_KEY)
         .scalar_subquery()
     )
-    return func.coalesce(stored, DEFAULT_MAX_FOLLOW_UPS)
+    value = func.coalesce(stored, DEFAULT_MAX_FOLLOW_UPS)
+    # The same bounds as `app_settings.max_follow_ups`.
+    return func.least(func.greatest(value, 0), MAX_FOLLOW_UPS_LIMIT)
 
 
 def email_error_sql() -> ColumnElement[bool]:

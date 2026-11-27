@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import CurrentActor, SessionDep
 from app.api.errors import business_errors
 from app.api.routes.send_situation import SendSituationOut
-from app.core.contact_steps import level_keys
+from app.core.contact_steps import MAX_FOLLOW_UPS_LIMIT, level_keys
 from app.models.enums import (
     ActivityStatus,
     Civility,
@@ -433,7 +433,7 @@ class ChartDateInput(BaseModel):
 
 @router.put("/chart-dates/{slot}")
 def save_chart_date(
-    slot: Annotated[int, Path(ge=0, le=4)],
+    slot: Annotated[int, Path(ge=0, le=MAX_FOLLOW_UPS_LIMIT)],
     body: ChartDateInput,
     session: SessionDep,
     actor: CurrentActor,

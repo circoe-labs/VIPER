@@ -201,11 +201,11 @@ def cases(db_session: Session) -> dict[str, Prospect]:
     made["inactive_due"] = case(s, company, "inactive_due", activity_status="inactive")
     in_cohort(s, made["inactive_due"], TODAY - timedelta(days=2))
 
-    # Contact sent; Contact, R1 and R2 sent.
+    # Contact sent; Contact and R1 sent.
     made["waiting"] = case(s, company, "waiting")
     in_cohort(s, made["waiting"], TODAY - timedelta(weeks=3), sends=1)
     made["follow_up"] = case(s, company, "follow_up")
-    in_cohort(s, made["follow_up"], TODAY - timedelta(weeks=4), sends=3)
+    in_cohort(s, made["follow_up"], TODAY - timedelta(weeks=3), sends=2)
     made["blocked_waiting"] = case(s, company, "blocked_waiting", **block())
     in_cohort(s, made["blocked_waiting"], TODAY - timedelta(weeks=3), sends=1)
     made["answered"] = case(s, company, "answered")

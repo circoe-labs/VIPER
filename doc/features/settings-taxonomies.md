@@ -35,7 +35,7 @@ Decisions: I-32 … I-36 in the decision log. Uniqueness mechanism: [ADR-0009](.
 | `POST /settings/cohorts` | `{code, starts_on}` (`S37`, « s 37 »… normalized to `S<n>`; the real date, required except S0) | 201 cohort |
 | `PATCH /settings/cohorts/{id}` | `{code?, starts_on?}` (at least one) | cohort — confirms a migrated cohort (`needs_review` cleared) |
 | `DELETE /settings/cohorts/{id}` | — | 204; 409 `in_use` once a sequence used it, 409 `cohort_s0_fixed` |
-| `GET /settings/contact` · `PUT /settings/contact` | `{max_follow_ups}` (0-20) | `{max_follow_ups}` — « max relances », 4 by default |
+| `GET /settings/contact` · `PUT /settings/contact` | `{max_follow_ups}` (0-2) | `{max_follow_ups}` — « max relances », 2 by default, never above (three e-mails) |
 
 Cohorts and « max relances » come with the sequences rework (decision log R-02, R-01; rules in
 [`contact.md`](contact.md#cohorts-sequences-and-alerts-sequences-rework)); both are written by a person only (403

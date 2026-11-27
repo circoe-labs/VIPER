@@ -38,6 +38,7 @@ import {
   remoteDraftLine,
   scheduleToIso,
   statusLine,
+  validationNotice,
 } from './mailModel'
 import { Notice } from './Notice'
 import { RecipientsButton } from './RecipientsPopover'
@@ -74,6 +75,9 @@ interface MailEditorProps {
   form: MailForm
   onForm: (form: MailForm | undefined) => void
   mutations: Mutations
+  // An edit of this visit removed the step's validation (kept by the sequence across tab switches).
+  invalidated: boolean
+  onInvalidated: (value: boolean) => void
   // Reads the sequence again (after a refusal saying the server's message differs).
   onReload: () => void
   // The send moment typed for this step (kept by the sequence across tab switches).
@@ -93,7 +97,6 @@ type Pending =
   | 'generate'
   | 'mark-sent'
   | 'release'
-  | 'edit-validated'
   | 'restore'
 
 // What is typed is kept in the draft by itself, this long after the last keystroke (and at once on blur, a tab switch,
@@ -113,9 +116,9 @@ const SIGNAL_TONES = { success: 'ok', warning: 'warning', danger: 'danger', info
 // One step's message: a slim toolbar (the recipients on one line, the status and every notice as icons with their detail
 // in a popover), the subject, the body on all the height left, and one action row (regenerate, advanced settings,
 // versions, save as a reference, validate / schedule…, unschedule, reopen; cancel and delete behind « … »). There is no
-// « Enregistrer »: what is typed is autosaved into the current draft (a validated or scheduled message asks once before
-// its first edit, since an edit puts it back to Brouillon). A sent message is read-only; a closed sequence locks the
-// editor with its reason.
+// « Enregistrer »: what is typed is autosaved into the current draft. Editing a validated or scheduled message is not
+// asked about: it goes back to Brouillon (to validate again before any send) and a line above the subject says so, with
+// the send date it lost. A sent message is read-only; a closed sequence locks the editor with its reason.
 export function MailEditor({
   step,
   sequence,
@@ -127,6 +130,8 @@ export function MailEditor({
   form,
   onForm,
   mutations,
+  invalidated,
+  onInvalidated,
   onReload,
   when,
   onWhen,
@@ -141,11 +146,8 @@ export function MailEditor({
   const [pending, setPending] = useState<Pending | null>(null)
   // The sentence kept after a draft was removed (no message is left to carry it).
   const [removed, setRemoved] = useState<string | null>(null)
-  // Autosave: when the draft last took the typed text (null: not in this visit), the edit a validated message waits for
-  // the person to confirm, whether that confirmation was given, and the version waiting to be restored.
+  // Autosave: when the draft last took the typed text (null: not in this visit), and the version waiting to be restored.
   const [savedAt, setSavedAt] = useState<number | null>(null)
-  const [pendingEdit, setPendingEdit] = useState<Partial<MailForm> | null>(null)
-  const [unlocked, setUnlocked] = useState(false)
   const [restoring, setRestoring] = useState<MessageVersion | null>(null)
   const [keepError, setKeepError] = useState<string | null>(null)
   const [keepAnchor, setKeepAnchor] = useState<HTMLElement | null>(null)
@@ -222,13 +224,10 @@ export function MailEditor({
   })
 
   function edit(patch: Partial<MailForm>) {
-    // An edit puts a validated or scheduled message back to Brouillon: asked once, before it is applied.
-    if ((status === 'validated' || status === 'scheduled') && !unlocked) {
-      setPendingEdit((current) => ({ ...current, ...patch }))
-      setPending('edit-validated')
-      return
-    }
-    onForm({ ...form, ...patch })
+    // Text typed back to the saved version is no edit: nothing kept, so nothing can be saved later and take a
+    // validation or a schedule away. While a save runs the saved version is about to change: the text is kept.
+    const next = { ...form, ...patch }
+    onForm(isDirty(next, saved) || inFlight.current ? next : undefined)
     setNotice(null)
     setRefusal(null)
   }
@@ -245,8 +244,8 @@ export function MailEditor({
     refuse(messageRefusal(caught))
   }
 
-  // The typed text goes into the current draft: nothing to click, nothing to confirm (a validated message asked
-  // before the edit was applied). Answers the message as it stands afterwards, null when the save was refused.
+  // The typed text goes into the current draft: nothing to click, nothing to confirm. Answers the message as it stands
+  // afterwards, null when the save was refused.
   async function persist(): Promise<Message | null> {
     // One save at a time: a second call (a blur, then the tab being left) shares the running one, never sends it twice.
     if (inFlight.current) return inFlight.current
@@ -259,7 +258,7 @@ export function MailEditor({
         // Typed meanwhile: that text stays in the form and is saved next.
         if (!isDirty(formRef.current, snapshot)) onForm(undefined)
         setSavedAt(Date.now())
-        setUnlocked(false)
+        if (result.unvalidated) onInvalidated(true)
         if (result.created) setNotice({ status: result.message.status, text: `Brouillon ${label} créé.` })
         else if (result.unvalidated) {
           setNotice({ status: result.message.status, text: `Message ${label} repassé en Brouillon : à revalider.` })
@@ -311,8 +310,8 @@ export function MailEditor({
       // « Valider » takes what is typed with it: the validated revision is the one shown.
       const target = action === 'validate' && dirty ? await persist() : message
       if (!target) return
-      setUnlocked(false)
       const result = await mutations.act.mutateAsync({ step, action, revision: target.revision })
+      onInvalidated(false)
       focusStatus.current = action !== 'unschedule' && action !== 'remote-draft'
       const outcome = result.remote_draft
       const created = outcome?.status === 'created' || outcome?.status === 'recovered'
@@ -336,7 +335,7 @@ export function MailEditor({
           'mark-sent': `Message ${label} marqué envoyé : il ne peut plus être modifié.`,
           release:
             result.message.status === 'cancelled'
-              ? `Message ${label} remis en Validé puis annulé : la séquence du prospect est close.`
+              ? `Message ${label} remis en Validé puis annulé${result.message.cancel_reason === 'sequence_limit' ? ' : trois e-mails au plus.' : ' : la séquence du prospect est close.'}`
               : `Message ${label} remis en Validé, sans date d’envoi : vérifiez la boîte Infomaniak avant de le reprogrammer.`,
         }[action],
       })
@@ -361,6 +360,7 @@ export function MailEditor({
         deadline: GENERATION_DEADLINE_MS,
       })
       onForm(undefined)
+      if (result.unvalidated) onInvalidated(true)
       setNotice({ status: result.message.status, text: generationNotice(step, result) })
       // The draft's status sentence takes the focus (the button that started it was disabled meanwhile).
       focusStatus.current = true
@@ -460,6 +460,7 @@ export function MailEditor({
     try {
       const result = await mutations.restore.mutateAsync({ step, versionId: version.id, revision: target.revision })
       onForm(undefined)
+      if (result.unvalidated) onInvalidated(true)
       setNotice({
         status: result.message.status,
         text: !result.changed
@@ -506,18 +507,6 @@ export function MailEditor({
           'Toute modification ultérieure le repassera en Brouillon et demandera une nouvelle validation.',
         ],
         confirmLabel: 'Valider le message',
-      }
-    }
-    if (pending === 'edit-validated') {
-      return {
-        title: `Modifier le message ${label} ?`,
-        lines: [
-          status === 'scheduled'
-            ? 'Il est programmé : le modifier retire la programmation et le repasse en Brouillon. Il faudra le revalider puis le reprogrammer.'
-            : 'Il est validé : le modifier le repasse en Brouillon. Il faudra le revalider.',
-          'Le texte actuel reste dans les versions.',
-        ],
-        confirmLabel: 'Modifier le message',
       }
     }
     if (pending === 'restore') {
@@ -664,13 +653,6 @@ export function MailEditor({
   }
 
   function onConfirm() {
-    if (pending === 'edit-validated') {
-      setUnlocked(true)
-      onForm({ ...form, ...pendingEdit })
-      setPendingEdit(null)
-      setPending(null)
-      return
-    }
     if (pending === 'restore' && restoring && message) {
       void restore(restoring, message)
       return
@@ -753,10 +735,12 @@ export function MailEditor({
     const text = 'Brouillon introuvable dans Infomaniak (autre compte, supprimé, ou envoyé à la main) : vérifiez les Envoyés, puis « Recréer » dans Contacts › Envois à reprendre.'
     signals.push({ id: 'draft-missing', tone: 'warning', icon: AlertIcon, label: text, detail: <p>{text}</p> })
   }
+  // A mail that may have left is said first; a schedule lost to an edit is said beside the mail (`validationNotice`),
+  // the other causes by this icon.
   if (message && message.status !== 'sent' && message.status !== 'scheduled' && message.needs_sent_check) {
     const text = 'Ce mail est peut-être déjà parti : vérifiez le dossier Envoyés d’Infomaniak avant de le reprogrammer, ou « Marquer comme envoyé ».'
     signals.push({ id: 'missed', tone: 'warning', icon: AlertIcon, label: text, detail: <p>{text}</p> })
-  } else if (message?.missed_scheduled_at && (message.status === 'draft' || message.status === 'validated')) {
+  } else if (message?.missed_scheduled_at && message.missed_reason !== 'edited' && (message.status === 'draft' || message.status === 'validated')) {
     const text = `Envoi prévu le ${formatDateTime(message.missed_scheduled_at)} non effectué : ${sendReason(message.missed_reason ?? '')}.`
     signals.push({ id: 'missed', tone: 'warning', icon: AlertIcon, label: text, detail: <p>{text}</p> })
   }
@@ -842,6 +826,7 @@ export function MailEditor({
     })
   }
 
+  const lost = validationNotice(message, dirty, invalidated)
   const scheduleError = scheduleProblem ?? refusal?.fields.schedule
   const advancedCustom = instruction.text.trim() !== '' || instruction.tone !== null || instruction.sender !== null
 
@@ -879,6 +864,16 @@ export function MailEditor({
         </p>
       )}
       <Notice text={shownNotice?.text ?? null} tone={shownNotice?.warning ? 'warning' : 'success'} quiet />
+
+      {/* Always mounted, so the sentence is announced when it appears. */}
+      <div role="status">
+        {lost && (
+          <p className="contact-mail__banner mail-lost">
+            <AlertIcon size={16} />
+            {lost}
+          </p>
+        )}
+      </div>
 
       <div className="mail-subject">
         <label className="mail-subject__label" htmlFor={fieldId('subject')}>
@@ -1055,7 +1050,6 @@ export function MailEditor({
         onConfirm={onConfirm}
         onClose={() => {
           setPending(null)
-          setPendingEdit(null)
           setRestoring(null)
         }}
       />

@@ -7,6 +7,7 @@ import type { Prospect } from '../api/prospects'
 import { contactDashboard, message, sent, stubContactApi, version } from '../test/contactApi'
 import { prospectDetail, trackingDetail } from '../test/prospectsApi'
 import { renderApp } from '../test/render'
+import { AUTOSAVE_DELAY_MS } from './MailEditor'
 
 // The Contact workbench against the Contact fake (test/contactApi.ts): the sheet, the manual state and week, and the
 // mail editor's state machine as the operator drives it.
@@ -296,27 +297,73 @@ describe('Contact workbench', () => {
     expect(validate?.body).toEqual({ expected_revision: 2 })
   })
 
-  it('asks once before the first edit of a validated or scheduled message, and only then saves it as a draft', async () => {
+  it('edits a scheduled message without asking, and says at once and after the save that it is no longer scheduled', async () => {
     const detail = person()
     const { api } = open(detail, { contact: message('contact', 'scheduled', { prospect_id: detail.id }) })
     await userEvent.type(await screen.findByRole('textbox', { name: 'Objet' }), 'X')
-    const dialog = await screen.findByRole('dialog', { name: 'Modifier le message Contact ?' })
-    expect(dialog).toHaveTextContent('retire la programmation')
-    // Cancelled: the text is untouched and nothing is sent.
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Retour' }))
-    expect(field('Objet')).toHaveValue('Objet contact')
-    expect(sent(api.requests, 'PUT', `/api/prospects/${detail.id}/messages/contact`)).toHaveLength(0)
-
-    await userEvent.type(field('Objet'), 'Y')
-    await confirmDialog(/Modifier le message Contact/, 'Modifier le message')
-    expect(field('Objet')).toHaveValue('Objet contactY')
+    expect(screen.queryByRole('dialog', { name: /Modifier le message/ })).not.toBeInTheDocument()
+    expect(field('Objet')).toHaveValue('Objet contactX')
+    // Before the save: what it will take away, with the send date.
+    expect(screen.getByText(/une fois enregistrée, ce message ne sera plus programmé \(envoi prévu le .*2026.*\)/)).toBeInTheDocument()
     await userEvent.tab()
     await waitFor(() => {
       expect(tab('Contact')).toHaveTextContent('Brouillon')
     })
     expect(announced()).toContain('repassé en Brouillon : à revalider')
+    expect(screen.getByText(/Validation retirée par la modification|Plus programmé : la modification a retiré/)).toBeInTheDocument()
     const [put] = sent(api.requests, 'PUT', `/api/prospects/${detail.id}/messages/contact`)
-    expect(put?.body).toMatchObject({ expected_revision: 1, subject: 'Objet contactY' })
+    expect(put?.body).toMatchObject({ expected_revision: 1, subject: 'Objet contactX' })
+    // Validating again is still required, and ends the sentence.
+    await userEvent.click(screen.getByRole('button', { name: 'Valider…' }))
+    await confirmDialog(/Valider le message Contact/, 'Valider le message')
+    await waitFor(() => {
+      expect(tab('Contact')).toHaveTextContent('Validé')
+    })
+    expect(screen.queryByText(/Validation retirée par la modification/)).not.toBeInTheDocument()
+  })
+
+  it('says the lost send date the server kept, until the message is scheduled again', async () => {
+    const detail = person()
+    open(detail, {
+      contact: message('contact', 'draft', {
+        prospect_id: detail.id,
+        missed_scheduled_at: '2026-10-06T07:30:00Z',
+        missed_reason: 'edited',
+        missed_at: '2026-09-30T08:00:00Z',
+      }),
+    })
+    expect(await screen.findByText(/Plus programmé : la modification a retiré l’envoi prévu le .*2026.*revalidez-le puis reprogrammez-le/)).toBeInTheDocument()
+  })
+
+  it('never takes a schedule away by opening, focusing or typing back to the saved text', async () => {
+    const detail = person()
+    const { api } = open(detail, {
+      contact: message('contact', 'scheduled', { prospect_id: detail.id }),
+      r1: message('r1', 'validated', { prospect_id: detail.id }),
+    })
+    await userEvent.click(await screen.findByRole('textbox', { name: 'Objet' }))
+    await userEvent.click(field('Corps'))
+    await userEvent.tab()
+    await userEvent.type(field('Objet'), 'X{Backspace}')
+    await userEvent.click(screen.getByRole('tab', { name: /^R1/ }))
+    await userEvent.click(await screen.findByRole('tab', { name: /^Contact/ }))
+    await new Promise((resolve) => window.setTimeout(resolve, AUTOSAVE_DELAY_MS + 200))
+    expect(api.requests.filter((request) => request.method !== 'GET')).toHaveLength(0)
+    expect(tab('Contact')).toHaveTextContent('Programmé')
+    expect(screen.queryByText(/Modification en cours/)).not.toBeInTheDocument()
+  })
+
+  it('shows an old R3 kept in the history as read-only: nothing to write, validate or schedule', async () => {
+    const detail = person()
+    open(detail, {
+      r3: message('r3', 'cancelled', { prospect_id: detail.id, cancel_reason: 'sequence_limit' }),
+    })
+    await userEvent.click(await screen.findByRole('tab', { name: /^R3/ }))
+    expect(await screen.findByRole('textbox', { name: 'Objet' })).toHaveAttribute('readonly')
+    expect(icon(/^Annulé le .*trois e-mails au plus/)).toBeInTheDocument()
+    for (const name of ['Rouvrir', 'Valider…', 'Programmer…']) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
+    }
   })
 
   it('warns, without blocking, when R1 is scheduled before Contact has left', async () => {

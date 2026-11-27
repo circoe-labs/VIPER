@@ -350,7 +350,7 @@ def test_next_actions_on_the_prospection_cases(db_session: Session) -> None:
     actions = next_actions(db_session, CONTEXT)
 
     # The `due` segment — Contact or follow-up to send — oldest next due date first (the opposed
-    # and inactive ones never): R1 due 24 Aug, R3 and R2 due 31 Aug, Contacts of 1 and 10 Sept.
+    # and inactive ones never): R1 due 24 Aug, R2 due 31 Aug twice, Contacts of 1 and 10 Sept.
     assert names(actions.due) == ["waiting", "follow_up", "answered", "due_past", "due_today"]
     assert actions.due.total == len(EXPECTED[Segment.DUE])
     # Appointments of the coming week, soonest first — today's included.

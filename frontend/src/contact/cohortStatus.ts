@@ -1,7 +1,7 @@
 // The line of a cohort on the Contact page: « S37 · R2 · vert ». The status says what the cohort has to prepare this
 // week, « envoyé » when it has nothing left to send, or the week it starts for a cohort not started yet; the colour
 // says how the week stands (green nothing due, orange a mail to send this week, red a mail late).
-import type { ContactDashboard } from '../api/contact'
+import { type ContactDashboard, MESSAGE_STEPS } from '../api/contact'
 
 export type ValidationTone = 'success' | 'warning' | 'danger'
 
@@ -109,8 +109,6 @@ export function sentSummary(code: string, cohorts: readonly CohortSummary[]): st
     .join(' · ')
 }
 
-const SCHEDULABLE_STEPS = ['contact', 'r1', 'r2', 'r3', 'r4'] as const
-
 // The first step of the cohort with people left to schedule: neither sent nor already scheduled. A follow-up counts
 // only once the step before it has left for someone. Null when everything is sent or scheduled.
 export function nextStepToSchedule(summary: CohortSummary | undefined): string | null {
@@ -118,8 +116,8 @@ export function nextStepToSchedule(summary: CohortSummary | undefined): string |
   const people = summary.prospects - (summary.appointments ?? 0)
   const count = (list: CohortSummary['sent_steps'], step: string) =>
     list?.find((item) => item.step === step)?.count ?? 0
-  for (const [index, step] of SCHEDULABLE_STEPS.entries()) {
-    const previous = SCHEDULABLE_STEPS[index - 1]
+  for (const [index, step] of MESSAGE_STEPS.entries()) {
+    const previous = MESSAGE_STEPS[index - 1]
     if (previous && count(summary.sent_steps, previous) === 0) return null
     if (people - count(summary.sent_steps, step) - count(summary.scheduled_steps, step) > 0) return step
   }

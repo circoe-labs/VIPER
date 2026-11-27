@@ -209,7 +209,10 @@ _TARGET: dict[str, Any] = {
     "step": {
         "type": "string",
         "pattern": STEP_CODE_PATTERN,
-        "description": "`contact` (first mail), `r1`, `r2`… up to the sequence's « max relances ».",
+        "description": (
+            "`contact` (first mail), `r1` or `r2`: a sequence is three e-mails at most, "
+            "nothing is written after `r2`."
+        ),
     },
     "expected_revision": {
         "type": "integer",

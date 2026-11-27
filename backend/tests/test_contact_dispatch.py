@@ -835,6 +835,34 @@ def test_a_person_puts_an_unconfirmed_send_back_to_validated(
     )
 
 
+def test_releasing_an_old_r3_claimed_before_the_limit_cancels_it(
+    connected: TestClient, toolbox_app: FastAPI, fake: FakeToolbox, db_session: Session
+) -> None:
+    prospect = prospect_id(db_session)
+    message = scheduled(connected, prospect)
+    clock = Clock(DUE)
+    assert dispatcher(toolbox_app, clock)._claim(uuid.UUID(message["id"]), DispatchReport())
+    db_session.execute(
+        text(
+            "UPDATE contact_messages SET rank = 3, last_error_code = 'send_outcome_unknown', "
+            "last_error_at = now(), dispatch_claimed_at = now() - interval '11 minutes' "
+            "WHERE id = :i"
+        ),
+        {"i": uuid.UUID(message["id"])},
+    )
+
+    path = f"{messages(prospect)}/r3/release"
+    released = ok(connected.post(path, json={"expected_revision": 1}))["message"]
+
+    assert (released["status"], released["cancel_reason"]) == ("cancelled", "sequence_limit")
+    assert released["has_remote_draft"] is False
+    refused(
+        connected.post(f"{messages(prospect)}/r3/reopen", json={"expected_revision": 1}),
+        409,
+        "rank_beyond_max",
+    )
+
+
 # --- two passes, two processes --------------------------------------------------------------------
 
 

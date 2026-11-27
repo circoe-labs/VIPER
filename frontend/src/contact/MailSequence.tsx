@@ -12,7 +12,7 @@ import { stepLabel } from './labels'
 import { type AiInstruction, NO_INSTRUCTION } from './aiDraftModel'
 import { rememberedMoment } from './lastMoment'
 import { MailEditor, type SendMoment } from './MailEditor'
-import { dispatchState, formOf, isDirty, type MailForm, mailActions, releaseAvailableAt } from './mailModel'
+import { dispatchState, formOf, isDirty, type MailForm, mailActions, releaseAvailableAt, stepContext } from './mailModel'
 import { MessageBadge } from './MessageBadge'
 
 // The step to send next (derived from the real sends), opened first; Contact when finished, closed or beyond R2.
@@ -43,6 +43,8 @@ export function MailSequence({ prospectId, onDirtyChange, navigation }: MailSequ
   const [moments, setMoments] = useState<Partial<Record<MessageStep, SendMoment>>>({})
   // The AI « consigne » per step (S5), kept across tab switches like the text.
   const [instructions, setInstructions] = useState<Partial<Record<MessageStep, AiInstruction>>>({})
+  // The steps whose validation an edit removed during this visit (said beside the mail until validated again).
+  const [invalidated, setInvalidated] = useState<Partial<Record<MessageStep, boolean>>>({})
   const sequence = query.data
   // A status changed by the server itself (the dispatcher sent a message, S7) moves the list's message chips, the
   // counters and the history too: read them again, as after a person's write.
@@ -73,15 +75,12 @@ export function MailSequence({ prospectId, onDirtyChange, navigation }: MailSequ
     ])
   }, [statuses, stepCodes, queryClient, prospectId])
 
-  const context = sequence
-    ? { state: sequence.sequence.state, doNotContact: sequence.sequence.do_not_contact, closed: sequence.sequence.closed }
-    : null
   // A step counts as edited only while it can be edited: a message the server locked meanwhile shows its saved text.
   const dirtySteps = stepCodes.filter((step) => {
     const draft = drafts[step]
-    if (!sequence || !context || !draft) return false
+    if (!sequence || !draft) return false
     const message = messageOf(sequence, step)
-    return mailActions(message, context).editable && isDirty(draft, formOf(message, sequence.defaults))
+    return mailActions(message, stepContext(sequence, step)).editable && isDirty(draft, formOf(message, sequence.defaults))
   })
   const anyDirty = dirtySteps.length > 0
   useEffect(() => {
@@ -124,11 +123,7 @@ export function MailSequence({ prospectId, onDirtyChange, navigation }: MailSequ
   // A claim is judged at the moment the sequence was read (the polling of `useMessageSequence` reads it again).
   const clock = { now: query.dataUpdatedAt, claimTtlSeconds: data.defaults.dispatch_claim_ttl_seconds }
   const releaseFrom = releaseAvailableAt(message, data.defaults.dispatch_claim_ttl_seconds, query.dataUpdatedAt)
-  const actions = mailActions(
-    message,
-    { state: data.sequence.state, doNotContact: data.sequence.do_not_contact, closed: data.sequence.closed },
-    clock,
-  )
+  const actions = mailActions(message, stepContext(data, step), clock)
   const saved = formOf(message, data.defaults)
   const draft = actions.editable ? drafts[step] : undefined
 
@@ -167,6 +162,10 @@ export function MailSequence({ prospectId, onDirtyChange, navigation }: MailSequ
           saved={saved}
           form={draft ?? saved}
           mutations={mutations}
+          invalidated={invalidated[step] ?? false}
+          onInvalidated={(value) => {
+            setInvalidated((current) => ({ ...current, [step]: value }))
+          }}
           onReload={() => void query.refetch()}
           when={moments[step] ?? rememberedMoment(step)}
           onWhen={(when) => {

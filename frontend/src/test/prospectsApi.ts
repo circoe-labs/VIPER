@@ -106,14 +106,14 @@ export function contactProgress(fields: Partial<ContactProgress> = {}): ContactP
     next_due_week: null,
     pause_reason: 'no_cohort',
     email_error: false,
-    max_follow_ups: 4,
+    max_follow_ups: 2,
     ...fields,
   }
 }
 
 const LEVELS = ['contact_pending', 'contact_sent']
 
-// The place of a sequence in `cohort` after `sent` sends (max relances 4), due on `due` (a past day by default).
+// The place of a sequence in `cohort` after `sent` sends (max relances 2), due on `due` (a past day by default).
 export function placeIn(cohort: Cohort, sent = 0, fields: Partial<Place> = {}): Place {
   const finished = sent > 4
   return {
@@ -130,7 +130,7 @@ export function placeIn(cohort: Cohort, sent = 0, fields: Partial<Place> = {}): 
     next_due_week: null,
     pause_reason: cohort.out_of_campaign ? 'out_of_campaign' : finished ? 'finished' : null,
     email_error: false,
-    max_follow_ups: 4,
+    max_follow_ups: 2,
     ...fields,
   }
 }

@@ -35,7 +35,12 @@ def test_distribution_counts_latest_send_once_per_person(
     assert response.status_code == 200
     body = response.json()
     assert body["total"] == 6
-    assert [bar["count"] for bar in body["bars"]] == [1, 1, 1, 1, 2]
+    # Three bars, one per e-mail of a sequence; the old R3/R4+ sends count in the last one.
+    assert [(bar["label"], bar["count"]) for bar in body["bars"]] == [
+        ("Contact", 1),
+        ("R1", 1),
+        ("R2 et au-delà", 4),
+    ]
     assert all(bar["send_date"] is None for bar in body["bars"])
     assert len(body["companies"]) == 6
 
@@ -75,19 +80,19 @@ def test_chart_dates_are_independent_persistent_clearable_and_do_not_change_mess
     before = db_session.execute(
         select(ContactMessage.id, ContactMessage.sent_at, ContactMessage.scheduled_at)
     ).all()
-    for slot, day in ((0, "2026-10-05"), (1, "2026-10-12"), (4, "2026-11-02")):
+    for slot, day in ((0, "2026-10-05"), (1, "2026-10-12"), (2, "2026-11-02")):
         saved = client.put(f"/api/contact/chart-dates/{slot}", json={"send_date": day})
         assert saved.status_code == 200
         assert saved.json() == {"send_date": day}
     dates = [bar["send_date"] for bar in client.get("/api/contact/overview").json()["bars"]]
-    assert dates == ["2026-10-05", "2026-10-12", None, None, "2026-11-02"]
+    assert dates == ["2026-10-05", "2026-10-12", "2026-11-02"]
     assert (
         client.put("/api/contact/chart-dates/0", json={"send_date": "2026-10-06"}).status_code
         == 200
     )
     assert client.put("/api/contact/chart-dates/1", json={"send_date": None}).status_code == 200
     dates = [bar["send_date"] for bar in client.get("/api/contact/overview").json()["bars"]]
-    assert dates == ["2026-10-06", None, None, None, "2026-11-02"]
+    assert dates == ["2026-10-06", None, "2026-11-02"]
     assert (
         db_session.execute(
             select(ContactMessage.id, ContactMessage.sent_at, ContactMessage.scheduled_at)
@@ -96,7 +101,7 @@ def test_chart_dates_are_independent_persistent_clearable_and_do_not_change_mess
     )
     assert db_session.scalar(select(func.count()).select_from(AppSetting)) == 3
     assert (
-        client.put("/api/contact/chart-dates/5", json={"send_date": "2026-10-05"}).status_code
+        client.put("/api/contact/chart-dates/3", json={"send_date": "2026-10-05"}).status_code
         == 422
     )
     assert (

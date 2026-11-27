@@ -101,6 +101,8 @@ export function messageRefusal(error: unknown): MessageRefusal {
         'La Toolbox peut encore être en train d’envoyer ce message : « Remettre en Validé » n’est possible qu’après le délai de vérification. S’il est déjà dans les éléments envoyés, « Marquer envoyé ».',
         true,
       )
+    case 'rank_beyond_max':
+      return plain('La séquence s’arrête avant cette étape (trois e-mails au plus : Contact, R1, R2) : aucun message au-delà.', true)
     case 'sent_check_required':
       return plain(
         'Un envoi précédent a peut-être abouti : vérifiez les éléments envoyés d’Infomaniak, puis confirmez-le en reprogrammant.',

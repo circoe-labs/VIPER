@@ -45,7 +45,7 @@ export function contactOverview(overrides: Partial<ContactOverview> = {}): Conta
   return {
     today: TODAY,
     total: 0,
-    bars: Array.from({ length: 5 }, (_, slot) => ({ slot, label: slot === 0 ? 'Contact' : `R${String(slot)}`, count: 0, send_date: null })),
+    bars: Array.from({ length: 3 }, (_, slot) => ({ slot, label: slot === 0 ? 'Contact' : `R${String(slot)}`, count: 0, send_date: null })),
     companies: [],
     statuses: [],
     dispatch: contactDashboard().dispatch,
@@ -59,7 +59,7 @@ export function contactScheduling(overrides: Partial<Scheduling> = {}): Scheduli
     today: TODAY,
     week: CURRENT_WEEK,
     current_week: CURRENT_WEEK,
-    max_follow_ups: 4,
+    max_follow_ups: 2,
     totals: { scheduled: 0, validated: 0, drafts: 0, due: 0, forgotten: 0, scheduled_past: 0, scheduled_with_error: 0, scheduled_with_draft_error: 0 },
     steps: [],
     days: [],
@@ -225,7 +225,8 @@ export function stubContactApi(options: ContactStubOptions = {}) {
     return {
       sequence: sequenceOf(id),
       defaults,
-      steps: (['contact', 'r1', 'r2'] as const).map((step) => ({ step, message: steps[step] ?? null })),
+      // The three steps, plus any older message kept beyond them (R3/R4), as the server lists them.
+      steps: [...new Set(['contact', 'r1', 'r2', ...Object.keys(steps).filter((step) => steps[step])])].map((step) => ({ step, message: steps[step] ?? null })),
     }
   }
 
@@ -434,10 +435,10 @@ export function stubContactApi(options: ContactStubOptions = {}) {
       const filtered = new URL(url)
       filtered.searchParams.set('category', 'contacted')
       const people = listed(filtered)
-      const counts = Array<number>(5).fill(0)
+      const counts = Array<number>(3).fill(0)
       for (const row of people) {
         const ranks = Object.entries(row.messages).filter(([, status]) => status === 'sent').map(([step]) => step === 'contact' ? 0 : Number(step.slice(1)))
-        const slot = Math.min(Math.max(...ranks), 4)
+        const slot = Math.min(Math.max(...ranks), 2)
         counts[slot] = (counts[slot] ?? 0) + 1
       }
       return json(200, options.overview ? { ...options.overview, bars: options.overview.bars.map((bar) => ({ ...bar, send_date: chartDates[bar.slot] ?? null })) } : {

@@ -10,7 +10,7 @@ Single Python source for what the Contact data means:
   is validated but out of campaign;
 - the **level** is never stored: it is the number of messages really sent in the current
   sequence — 0 sent: the Contact is the step to send; n sent: Rn is the step to send; after the
-  send of R<max> (« max relances », 4 by default) the sequence is « Relance terminée » (still
+  send of R<max> (« max relances », R2 at most) the sequence is « Relance terminée » (still
   contactable, out of the automatic actions). A planned but unsent message moves nothing;
 - the **next due date** is the cohort's date for the Contact, then the Monday (business midnight)
   of the calendar week after the last send — nothing is due when the sequence is finished or
