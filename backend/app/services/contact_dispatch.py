@@ -1182,9 +1182,10 @@ def record_unsettled_send(
     now: datetime | None = None,
 ) -> ContactMessage:
     """« Marquer comme envoyé » on an **existing** mail that left although VIPER does not know
-    it, where no other door records it: an R3 or beyond (the sequence stops at R2) that may have
-    left or whose send is unconfirmed, or a claim of a former sequence. History only: nothing is
-    sent, no message is created. Dated at the attempt (the claim, else the missed moment)."""
+    it, where no other door records it: one that may have left or whose send is unconfirmed, and
+    that is an R3 or beyond (the sequence stops at R2) or belongs to a former sequence. History
+    only: nothing is sent, no message is created. Dated at the attempt (the claim, else the missed
+    moment)."""
     if actor.type is not ActorType.HUMAN or not actor.id:
         raise ActorNotAllowedError("A send is declared by a person.")
     moment = now or datetime.now(UTC)
@@ -1199,9 +1200,10 @@ def record_unsettled_send(
         )
     claimed = message.dispatch_claim_id is not None
     beyond = message.rank > MAX_FOLLOW_UPS_LIMIT
-    allowed = message.status is not M.SENT and (
-        (claimed and (beyond or not _is_current(session, message)))
-        or (beyond and message.sent_doubt_reason is not None)
+    allowed = (
+        message.status is not M.SENT
+        and (claimed or message.sent_doubt_reason is not None)
+        and (beyond or not _is_current(session, message))
     )
     if not allowed:
         raise ContactMessageError(

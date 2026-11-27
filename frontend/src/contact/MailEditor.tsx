@@ -747,9 +747,9 @@ export function MailEditor({
   // A mail that may have left is said first; a schedule lost to an edit or to a change of address is said beside the
   // mail (`validationNotice`), the other causes by this icon.
   if (message && message.status !== 'sent' && message.status !== 'scheduled' && message.needs_sent_check) {
-    // After the sequence's last step nothing is scheduled or recorded as sent: only the check is left to confirm.
+    // After the sequence's last step the sheet schedules and marks nothing: the answer is given in the recovery list.
     const text = stepContext(sequence, step).beyondLimit
-      ? 'Ce mail est peut-être déjà parti : vérifiez le dossier Envoyés d’Infomaniak. S’il n’y est pas, « Confirmer sans reprogrammer » dans Contacts › Envois à reprendre.'
+      ? 'Ce mail est peut-être déjà parti : vérifiez le dossier Envoyés d’Infomaniak, puis dites-le dans Contacts › Envois à reprendre (« Marquer comme envoyé », ou « Confirmer sans reprogrammer »).'
       : 'Ce mail est peut-être déjà parti : vérifiez le dossier Envoyés d’Infomaniak avant de le reprogrammer, ou « Marquer comme envoyé ».'
     signals.push({ id: 'missed', tone: 'warning', icon: AlertIcon, label: text, detail: <p>{text}</p> })
   } else if (message?.missed_scheduled_at && message.missed_reason !== 'edited' && message.missed_reason !== 'recipient_changed' && (message.status === 'draft' || message.status === 'validated')) {

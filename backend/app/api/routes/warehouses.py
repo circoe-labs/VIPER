@@ -62,10 +62,9 @@ class WarehouseDraftOut(BaseModel):
     identity_doubt: IdentityDoubtOut | None = None
 
 
-def draft_out(session: SessionDep, draft: WarehouseDraft, category: str | None) -> WarehouseDraftOut:
-    doubt = None
-    if draft.send_state != "sent":
-        doubt = email_identity.warehouse_doubt(session, draft)
+def draft_out(
+    draft: WarehouseDraft, category: str | None, doubt: email_identity.Doubt | None
+) -> WarehouseDraftOut:
     return WarehouseDraftOut.model_validate(draft).model_copy(
         update={
             "prospecting_category": category,
@@ -76,16 +75,15 @@ def draft_out(session: SessionDep, draft: WarehouseDraft, category: str | None) 
 
 @router.get("/drafts", response_model=list[WarehouseDraftOut])
 def list_drafts(session: SessionDep) -> list[WarehouseDraftOut]:
-    return [
-        draft_out(session, draft, category)
-        for draft, category in session.execute(
-            select(WarehouseDraft, Warehouse.prospecting_category)
-            .join(Warehouse, Warehouse.id == WarehouseDraft.warehouse_id)
-            .order_by(
-                WarehouseDraft.warehouse_name, WarehouseDraft.contact_name, WarehouseDraft.id
-            )
-        )
-    ]
+    rows = session.execute(
+        select(WarehouseDraft, Warehouse.prospecting_category)
+        .join(Warehouse, Warehouse.id == WarehouseDraft.warehouse_id)
+        .order_by(WarehouseDraft.warehouse_name, WarehouseDraft.contact_name, WarehouseDraft.id)
+    ).tuples().all()
+    doubts = email_identity.warehouse_doubts(
+        session, [draft for draft, _ in rows if draft.send_state != "sent"]
+    )
+    return [draft_out(draft, category, doubts.get(draft.id)) for draft, category in rows]
 
 
 class WarehouseDraftEdit(BaseModel):
@@ -245,7 +243,11 @@ def confirm_recipient(
     with business_errors():
         email_identity.confirm_warehouse(session, actor, draft)
     warehouse = session.get(Warehouse, draft.warehouse_id)
-    return draft_out(session, draft, warehouse.prospecting_category if warehouse else None)
+    return draft_out(
+        draft,
+        warehouse.prospecting_category if warehouse else None,
+        email_identity.warehouse_doubt(session, draft),
+    )
 
 
 @router.post("/drafts/{draft_id}/validate", response_model=WarehouseDraftOut)

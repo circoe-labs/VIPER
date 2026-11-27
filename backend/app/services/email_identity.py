@@ -28,11 +28,11 @@ import re
 import unicodedata
 import uuid
 from collections import defaultdict
-from collections.abc import Collection, Iterable, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
-from sqlalchemy import ColumnElement, delete, select
+from sqlalchemy import ColumnElement, delete, select, text
 from sqlalchemy.orm import Session
 
 from app.core.actor import ActorContext, ActorType
@@ -347,14 +347,61 @@ def base_doubts(
     return pair_doubts(session, set(session.execute(statement).tuples()))
 
 
+# What the whole-base doubts are computed from. `ctid` and `xmin` change with every row written
+# or removed (raw SQL included), so equal fingerprints mean equal rows.
+_FINGERPRINT = text(
+    " UNION ALL ".join(
+        f"SELECT count(*), coalesce(sum(hashtextextended(ctid::text || xmin::text, 0)), 0) "
+        f"FROM {table}"
+        for table in ("prospects", "emails", "companies", "email_identity_confirmations")
+    )
+)
+
+
+@dataclass(frozen=True, slots=True)
+class BaseDoubts:
+    """The unconfirmed doubts of the whole base, and the e-mail rows they are about."""
+
+    pairs: Mapping[Pair, Doubt]
+    email_ids: frozenset[uuid.UUID]
+
+
+_whole_base: tuple[tuple[object, ...], BaseDoubts] | None = None
+
+
+def whole_base(session: Session) -> BaseDoubts:
+    """What lists and counters read. Assessed again only when the rows behind it changed (one
+    cheap statement tells), so a polled screen does not assess every address each time."""
+    global _whole_base
+    fingerprint = tuple(session.execute(_FINGERPRINT).tuples())
+    cached = _whole_base
+    if cached is None or cached[0] != fingerprint:
+        pairs = base_doubts(session)
+        rows = (
+            session.execute(
+                select(Email.id, Email.prospect_id, Email.address).where(
+                    Email.address.in_({address for _, address in pairs})
+                )
+            ).tuples()
+            if pairs
+            else ()
+        )
+        found = BaseDoubts(pairs, frozenset(i for i, p, a in rows if (p, a) in pairs))
+        cached = _whole_base = (fingerprint, found)
+        logger.info("email_identity.assessed_base doubts=%s", len(pairs))
+    return cached[1]
+
+
 def doubtful_ids(session: Session) -> set[uuid.UUID]:
     """The people with a doubtful active address."""
-    return {prospect_id for prospect_id, _ in base_doubts(session)}
+    return {prospect_id for prospect_id, _ in whole_base(session).pairs}
 
 
 def primary_doubts(session: Session, prospect_ids: Collection[uuid.UUID]) -> dict[uuid.UUID, Doubt]:
     """For lists: the doubt of each person who has one, the primary address's first."""
-    found = base_doubts(session, prospect_ids)
+    wanted = set(prospect_ids)
+    base = whole_base(session).pairs if wanted else {}
+    found = {pair: doubt for pair, doubt in base.items() if pair[0] in wanted}
     if not found:
         return {}
     primaries = set(
@@ -392,20 +439,64 @@ def warehouse_doubt(session: Session, draft: WarehouseDraft) -> Doubt | None:
     """A warehouse mail goes to a snapshot address in the name of a warehouse contact: doubtful
     when the address plainly names someone else than that contact, or when it is doubtful for
     every prospect holding it. A confirmation for the contact, or for a holder, dismisses it."""
-    recipient = (draft.recipient or "").strip().lower()
-    if not recipient:
-        return None
-    holders = set(session.scalars(select(Email.prospect_id).where(Email.address == recipient)))
-    keys = [_name_key(draft.contact_name), *(_key(i) for i in holders)]
-    if any(address == recipient for _, address in confirmations(session, keys)):
-        return None
-    named = assess(recipient, Name.full(draft.contact_name))
-    if named is not None:
-        return named
-    found = pair_doubts(session, {(i, recipient) for i in holders})
-    if found and len(found) == len(holders):
-        return found[min(found, key=lambda pair: str(pair[0]))]
-    return None
+    return warehouse_doubts(session, [draft]).get(draft.id)
+
+
+def warehouse_doubts(session: Session, drafts: Sequence[WarehouseDraft]) -> dict[uuid.UUID, Doubt]:
+    """`warehouse_doubt` of many drafts (the polled list) in a handful of statements."""
+    recipients = {
+        draft.id: held for draft in drafts if (held := (draft.recipient or "").strip().lower())
+    }
+    if not recipients:
+        return {}
+    holders: dict[str, set[uuid.UUID]] = defaultdict(set)
+    active: set[Pair] = set()
+    for address, prospect_id, is_active in session.execute(
+        select(Email.address, Email.prospect_id, Email.is_active).where(
+            Email.address.in_(set(recipients.values()))
+        )
+    ).tuples():
+        holders[address].add(prospect_id)
+        if is_active:
+            active.add((prospect_id, address))
+    keys = {
+        draft.id: [
+            _name_key(draft.contact_name),
+            *(_key(i) for i in holders.get(recipients[draft.id], ())),
+        ]
+        for draft in drafts
+        if draft.id in recipients
+    }
+    confirmed = set(confirmations(session, {key for found in keys.values() for key in found}))
+    out: dict[uuid.UUID, Doubt] = {}
+    unnamed: list[WarehouseDraft] = []
+    for draft in drafts:
+        recipient = recipients.get(draft.id)
+        if recipient is None or any((key, recipient) in confirmed for key in keys[draft.id]):
+            continue
+        named = assess(recipient, Name.full(draft.contact_name))
+        if named is not None:
+            out[draft.id] = named
+        elif holders.get(recipient):
+            unnamed.append(draft)
+    # An active holder the whole-base read does not doubt clears the draft without more reads.
+    if unnamed:
+        cleared = active - whole_base(session).pairs.keys()
+        unnamed = [
+            d
+            for d in unnamed
+            if not any((i, recipients[d.id]) in cleared for i in holders[recipients[d.id]])
+        ]
+    found = pair_doubts(
+        session,
+        {(i, recipients[d.id]) for d in unnamed for i in holders[recipients[d.id]]},
+    )
+    for draft in unnamed:
+        recipient = recipients[draft.id]
+        pairs = [(i, recipient) for i in holders[recipient] if (i, recipient) in found]
+        if len(pairs) == len(holders[recipient]):
+            out[draft.id] = found[min(pairs, key=lambda pair: str(pair[0]))]
+    return out
 
 
 # --- writes ---------------------------------------------------------------------------------------

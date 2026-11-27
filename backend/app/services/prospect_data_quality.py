@@ -33,7 +33,7 @@ An `invalid` e-mail never counts as verified; a prospect with durable opposition
 (`None` upstream, the UI shows « Écarté »).
 """
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -164,14 +164,22 @@ def _is_verified(channel: Email | Phone) -> bool:
     return channel.verification_status == VerificationStatus.VERIFIED
 
 
-def _email_criteria(emails: Sequence[Email]) -> list[DataQualityCriterion]:
+def _email_criteria(
+    emails: Sequence[Email], doubtful: Collection[str]
+) -> list[DataQualityCriterion]:
+    """`doubtful`: the addresses that look like someone else's (`email_identity`): one of them
+    never counts as a verified e-mail."""
     active = sorted((email for email in emails if email.is_active), key=lambda email: str(email.id))
     primary = next((email for email in active if email.is_primary), None)
     checked = primary or (active[0] if active else None)
     has_active = bool(active)
+    doubted = checked is not None and checked.address in doubtful
+    verified = checked is not None and _is_verified(checked) and not doubted
     if checked is None:
         verified_detail = "Aucun e-mail à vérifier"
-    elif _is_verified(checked):
+    elif doubted:
+        verified_detail = "E-mail à vérifier (identité)"
+    elif verified:
         verified_detail = "E-mail vérifié"
     elif checked.verification_status == VerificationStatus.INVALID:
         verified_detail = "E-mail signalé invalide"
@@ -189,7 +197,7 @@ def _email_criteria(emails: Sequence[Email]) -> list[DataQualityCriterion]:
             "email_verified",
             "E-mail vérifié",
             20,
-            20 if checked is not None and _is_verified(checked) else 0,
+            20 if verified else 0,
             verified_detail,
         ),
     ]
@@ -234,12 +242,15 @@ def _employment_criterion(
 
 
 def build_criteria(
-    prospect: Prospect, now: datetime, config: DataQualityConfig
+    prospect: Prospect,
+    now: datetime,
+    config: DataQualityConfig,
+    doubtful: Collection[str] = (),
 ) -> list[DataQualityCriterion]:
     known_activity = prospect.activity_status != ActivityStatus.UNKNOWN
     has_title = bool((prospect.exact_job_title or "").strip())
     return [
-        *_email_criteria(prospect.emails),
+        *_email_criteria(prospect.emails, doubtful),
         *_phone_criteria(prospect.phones),
         _employment_criterion(prospect.employment_verified_at, now, config),
         _criterion(
@@ -321,6 +332,9 @@ def build_data_quality(
 
 
 def data_quality_of(
-    prospect: Prospect, now: datetime, config: DataQualityConfig
+    prospect: Prospect,
+    now: datetime,
+    config: DataQualityConfig,
+    doubtful: Collection[str] = (),
 ) -> DataQualityScore:
-    return build_data_quality(build_criteria(prospect, now, config), config)
+    return build_data_quality(build_criteria(prospect, now, config, doubtful), config)

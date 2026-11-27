@@ -9,12 +9,24 @@ a message really sent, the next due date is derived (`contact_sequences.next_due
 Definitions, examples and rationale: doc/features/prospection-kpis.md (decisions I-90 … I-93).
 """
 
+import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import ColumnElement, Label, Select, and_, case, exists, false, func, or_, true
+from sqlalchemy import (
+    ColumnElement,
+    Label,
+    Select,
+    and_,
+    case,
+    exists,
+    false,
+    func,
+    or_,
+    true,
+)
 from sqlalchemy.orm import aliased
 
 from app.core.business_time import BUSINESS_TIMEZONE, start_of_day
@@ -130,6 +142,9 @@ class SegmentContext:
 
     today: date
     stale_days: int | None = None
+    # The e-mail rows that look like someone else's (`email_identity`): such an address never
+    # counts as a verified e-mail in the reviews, whatever its stored status.
+    doubtful: frozenset[uuid.UUID] = frozenset()
 
     @classmethod
     def at(cls, moment: datetime, stale_days: int | None = None) -> SegmentContext:
@@ -300,13 +315,21 @@ def verification_validated() -> ColumnElement[bool]:
     )
 
 
+def primary_verified(context: SegmentContext) -> ColumnElement[bool]:
+    """The primary e-mail is verified and not doubted to be someone else's."""
+    verified = primary_email.verification_status == VerificationStatus.VERIFIED
+    if not context.doubtful:
+        return verified
+    return and_(verified, ~primary_email.id.in_(sorted(context.doubtful)))
+
+
 def fully_verified(context: SegmentContext) -> ColumnElement[bool]:
     """Employment verified and up to date, and the primary e-mail verified."""
     return and_(
         Prospect.employment_verified_at.is_not(None),
         ~stale(context),
         ~channels_reset(),
-        primary_email.verification_status == VerificationStatus.VERIFIED,
+        primary_verified(context),
     )
 
 
@@ -321,12 +344,12 @@ def set_aside() -> ColumnElement[bool]:
     )
 
 
-def minimum_to_email() -> ColumnElement[bool]:
+def minimum_to_email(context: SegmentContext) -> ColumnElement[bool]:
     """The minimum to send an e-mail to the person: a verified primary e-mail, first and last name,
     a company and a role. Never NULL."""
     return func.coalesce(
         and_(
-            primary_email.verification_status == VerificationStatus.VERIFIED,
+            primary_verified(context),
             func.coalesce(func.trim(Prospect.first_name), "") != "",
             func.coalesce(func.trim(Prospect.last_name), "") != "",
             Prospect.company_id.is_not(None),
@@ -339,7 +362,7 @@ def minimum_to_email() -> ColumnElement[bool]:
 def review_predicate(review: Review, context: SegmentContext) -> ColumnElement[bool]:
     """Membership of `review` over the rows of `join_segment_sources` (never NULL)."""
     is_ignored = set_aside()
-    is_usable = and_(~is_ignored, minimum_to_email())
+    is_usable = and_(~is_ignored, minimum_to_email(context))
     is_verified = and_(
         is_usable,
         func.coalesce(

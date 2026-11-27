@@ -940,7 +940,7 @@ audit log (and the doubt from every event that ever took a send moment away, `up
 to `send_not_confirmed`, `send_draft_not_found`, `send_probably_sent` or `dispatch_held` (`--hold-scheduled`), and by a
 scheduled message whose draft the check does not find (`draft_missing`; a draft sent by hand from Infomaniak disappears
 too), whatever takes its schedule away (a cancellation, a change of the recipient's address, migration 0062 included).
-A mail beyond R2 can only be confirmed not sent (nothing is scheduled or recorded as sent after R2). It is durable: edit, AI
+A mail beyond R2 is never scheduled again: it is confirmed not sent, or recorded as sent (below). It is durable: edit, AI
 redraft, restored version, unschedule, cancellation, reopening and change of contact week keep it. Only a person's word
 clears it (confirmed schedule, new draft or deletion, « Remettre en Validé », « Confirmer sans reprogrammer ») or a
 recorded send. Every schedule path (editor, series, bulk) refuses 409 `sent_check_required` without
@@ -1355,8 +1355,8 @@ or not, before it reconciles. The locked mail is listed in « Envois à reprendr
 settled by the reconciliation, or there by a person (« pas parti » after the claim's delay).
 
 **Recording a send the sheet cannot** (`POST /contact/unsent/record-sent`, « Marquer comme
-envoyé » on the row of « Envois à reprendre »): an **existing** unsent message beyond R2 that
-may have left or whose send is unconfirmed, or one still claimed in a former contact week. It
+envoyé » on the row of « Envois à reprendre »): an **existing** unsent message that may have
+left or whose send is unconfirmed, beyond R2 or of a former contact week. It
 becomes `sent` (`manual`, dated at the attempt); nothing is sent and no message is created.
 The rows of that list are keyed by message: an old week's mail and the current one of the same
 step are separate.

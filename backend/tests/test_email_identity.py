@@ -228,3 +228,35 @@ def test_only_a_person_confirms(db_session: Session) -> None:
     agent = ActorContext(type=ActorType.AGENT, display="Agent", id="agent")
     with pytest.raises(ActorNotAllowedError):
         email_identity.confirm(db_session, agent, person, WRONG)
+
+
+def test_a_doubtful_verified_address_is_not_a_verified_email_for_the_file(
+    db_session: Session, connected: TestClient
+) -> None:
+    person = prospect_id(db_session)
+    base = f"/api/prospects/{person}"
+
+    def file_status() -> tuple[str, str, int, int]:
+        sheet = ok(connected.get(base))["data_quality"]
+        verified = next(c for c in sheet["criteria"] if c["id"] == "email_verified")
+        (item,) = ok(connected.get("/api/prospection/prospects"))["items"]
+        return item["review"], verified["detail"], sheet["total"], item["quality_score"]
+
+    primary = db_session.scalar(select(Email).where(Email.prospect_id == person, Email.is_primary))
+    assert primary is not None
+    readdress(db_session, person, primary.address)  # verified, and the person's own
+    review, detail, total, listed = file_status()
+    assert detail == "E-mail vérifié" and total == listed
+
+    readdress(db_session, person, WRONG)
+    doubted_review, detail, doubted_total, doubted_listed = file_status()
+    assert detail == "E-mail à vérifier (identité)"
+    assert doubted_total == doubted_listed == total - 20
+    assert doubted_review == "incomplete"
+    reviews = ok(connected.get("/api/prospection/counters"))["reviews"]
+    assert reviews["incomplete"]["total"] == 1
+
+    # Confirmed: the same read, without any other write, counts it again.
+    path = f"{base}/email-identity"
+    assert connected.post(path, json={"address": WRONG}).status_code == 204
+    assert file_status() == (review, "E-mail vérifié", total, total)

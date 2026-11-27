@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models.enums import ContactMessageStatus as M
 from app.services import audit
+from app.services.contact_draft_check import check_scheduled_drafts
 from tests.builders import FIXTURE_ACTOR, add_cohort
 from tests.fake_toolbox import FakeToolbox
 from tests.test_contact_dispatch import DUE, Clock, dispatcher, row, scheduled, toolbox_of
@@ -183,3 +184,25 @@ def test_a_former_week_claim_that_left_is_recorded(
     done = ok(connected.post("/api/contact/unsent/record-sent", json=body))["message"]
     assert done["status"] == "sent"
     assert row(db_session, old_id).dispatch_claim_id is None or done["status"] == "sent"
+
+
+def test_a_former_week_mail_with_a_recorded_doubt_is_recorded_as_sent(
+    connected: TestClient, toolbox_app: FastAPI, fake: FakeToolbox, db_session: Session
+) -> None:
+    person = prospect_id(db_session)
+    message = scheduled(connected, person)
+    stored = row(db_session, message["id"])
+    del fake.drafts[str(stored.remote_draft_id)]  # sent by hand
+    check_scheduled_drafts(toolbox_app.state.session_factory, toolbox_of(toolbox_app))
+    change_week(connected, db_session, person)
+    old = row(db_session, message["id"])
+    assert (old.status, old.dispatch_claim_id) == (M.CANCELLED, None)
+    assert old.sent_doubt_reason == "draft_missing"
+    body = {"message_id": message["id"], "expected_revision": old.revision}
+
+    done = ok(connected.post("/api/contact/unsent/record-sent", json=body))["message"]
+
+    assert (done["status"], done["sent_source"]) == ("sent", "manual")
+    assert row(db_session, message["id"]).sent_doubt_reason is None
+    assert ok(connected.get("/api/contact/unsent"))["items"] == []
+    assert fake.sent == []

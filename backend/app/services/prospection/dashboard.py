@@ -5,11 +5,12 @@ expression enriches just the requested page. The interest score from notes is un
 """
 
 import uuid
+from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from pydantic import BaseModel
-from sqlalchemy import ColumnElement, case, exists, func, select
+from sqlalchemy import ColumnElement, case, exists, func, literal, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -21,8 +22,9 @@ from app.models.enums import (
     ContactMessageStatus,
     VerificationStatus,
 )
-from app.services import eligibility
+from app.services import eligibility, email_identity
 from app.services.prospect_data_quality import DataQualityConfig, band_of
+from app.services.prospection.query import identity_aware
 from app.services.prospection.segments import (
     Review,
     Segment,
@@ -55,11 +57,20 @@ def sent_stage(rank: int) -> ColumnElement[bool]:
     )
 
 
-def quality_sql(now: datetime, config: DataQualityConfig) -> ColumnElement[int | None]:
+def quality_sql(
+    now: datetime,
+    config: DataQualityConfig,
+    doubtful: Collection[uuid.UUID] = (),
+) -> ColumnElement[int | None]:
     active_email = exists().where(Email.prospect_id == Prospect.id, Email.is_active)
     # Primary first, deterministic fallback by id, as in the canonical score service.
+    # A doubtful address earns no « verified » points, whatever its stored status.
+    status: Any = Email.verification_status
+    if doubtful:
+        unverified = literal(VerificationStatus.UNVERIFIED, status.type)
+        status = case((Email.id.in_(sorted(doubtful)), unverified), else_=status)
     verified_email = (
-        select(Email.verification_status)
+        select(status)
         .where(Email.prospect_id == Prospect.id, Email.is_active)
         .order_by(Email.is_primary.desc(), Email.id)
         .limit(1)
@@ -99,8 +110,8 @@ def quality_sql(now: datetime, config: DataQualityConfig) -> ColumnElement[int |
 
 def overview(session: Session, settings: Settings, *, validated_only: bool = False) -> DashboardOut:
     now = datetime.now(UTC)
-    context = SegmentContext.at(now, settings.verification_stale_days)
-    quality = quality_sql(now, DataQualityConfig.from_settings(settings))
+    context = identity_aware(session, SegmentContext.at(now, settings.verification_stale_days))
+    quality = quality_sql(now, DataQualityConfig.from_settings(settings), context.doubtful)
     statement = join_segment_sources(
         select(
             func.count().label("total"),
@@ -141,7 +152,7 @@ def page_details(
     if not ids:
         return {}
     config = DataQualityConfig.from_settings(settings)
-    quality = quality_sql(datetime.now(UTC), config)
+    quality = quality_sql(datetime.now(UTC), config, email_identity.whole_base(session).email_ids)
     rank = (
         select(func.max(ContactMessage.rank))
         .where(

@@ -6,16 +6,16 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from app.models import Email, Prospect, ProspectingHold, Warehouse, WarehouseDraft
-from app.models.enums import ActivityStatus, ContactabilityStatus, ContactMessageStatus
-from app.services import warehouse_addresses
-from app.services.contact_draft_check import check_scheduled_drafts
-from app.services.warehouse_dispatch import dispatch_warehouses
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models import Email, Prospect, ProspectingHold, Warehouse, WarehouseDraft
+from app.models.enums import ActivityStatus, ContactabilityStatus, ContactMessageStatus
+from app.services import warehouse_addresses
+from app.services.contact_draft_check import check_scheduled_drafts
+from app.services.warehouse_dispatch import dispatch_warehouses
 from tests.builders import add_company, add_email, add_prospect, start_sequence
 from tests.fake_toolbox import FakeToolbox
 from tests.test_contact_dispatch import (
@@ -279,7 +279,7 @@ def test_a_warehouse_mail_to_someone_who_left_is_stopped_and_refused(
     act(connected, "prospects", found.id, "depart", departure_reason="left_company")
 
     db_session.expire_all()
-    stopped = db_session.get(WarehouseDraft, draft.id)
+    stopped = db_session.get_one(WarehouseDraft, draft.id)
     assert stopped is not None
     assert (stopped.send_state, stopped.failure_code) == ("failed", "prospect_departed")
     refused(
@@ -298,7 +298,7 @@ def test_a_warehouse_mail_to_someone_who_left_is_stopped_and_refused(
     dispatch_warehouses(toolbox_app.state.session_factory, config(), toolbox_of(toolbox_app))
     db_session.expire_all()
     assert fake.sent == []
-    again = db_session.get(WarehouseDraft, draft.id)
+    again = db_session.get_one(WarehouseDraft, draft.id)
     assert again is not None and again.failure_code == "prospect_departed"
 
 
@@ -547,7 +547,7 @@ def test_a_new_validation_decides_for_a_removed_address(
     prospect = prospect_id(db_session)
     (first,) = ok(connected.get(f"/api/prospects/{prospect}"))["emails"]
     draft = due_warehouse_draft(db_session, first["address"])
-    warehouse = db_session.get(Warehouse, draft.warehouse_id)
+    warehouse = db_session.get_one(Warehouse, draft.warehouse_id)
     assert warehouse is not None
     warehouse.prospecting_category = "other"
     db_session.commit()
@@ -596,7 +596,7 @@ def test_one_blocked_draft_never_holds_back_a_grouped_plan(
     act(connected, "prospects", prospect, "archive")
     db_session.expire_all()
     items = [
-        {"id": str(d.id), "revision": db_session.get(WarehouseDraft, d.id).revision}
+        {"id": str(d.id), "revision": db_session.get_one(WarehouseDraft, d.id).revision}
         for d in (mine, other)
     ]
     body = {"scheduled_at": FUTURE.isoformat(), "drafts": items}
@@ -608,8 +608,8 @@ def test_one_blocked_draft_never_holds_back_a_grouped_plan(
     assert (skipped["id"], skipped["code"]) == (str(mine.id), "prospect_archived")
     assert skipped["contact_name"] and skipped["reason"]
     db_session.expire_all()
-    assert db_session.get(WarehouseDraft, other.id).send_state == "planned"
-    assert db_session.get(WarehouseDraft, mine.id).send_state != "planned"
+    assert db_session.get_one(WarehouseDraft, other.id).send_state == "planned"
+    assert db_session.get_one(WarehouseDraft, mine.id).send_state != "planned"
 
 
 def test_a_shared_address_keeps_its_mail_while_another_eligible_person_holds_it(
@@ -624,7 +624,7 @@ def test_a_shared_address_keeps_its_mail_while_another_eligible_person_holds_it(
     save(connected, prospect, [alias(one)])
 
     db_session.expire_all()
-    after = db_session.get(WarehouseDraft, draft.id)
+    after = db_session.get_one(WarehouseDraft, draft.id)
     assert (after.send_state, after.human_validated, after.revision) == before
 
 
@@ -641,7 +641,7 @@ def test_a_new_validation_lifts_a_former_holders_block_but_never_an_opposition(
         body = {"do_not_contact": True, "reason": "Asked", "version": version}
         ok(connected.put(f"/api/prospects/{prospect}/contactability", json=body))
     draft = warehouse_draft(db_session, two["address"])
-    warehouse = db_session.get(Warehouse, draft.warehouse_id)
+    warehouse = db_session.get_one(Warehouse, draft.warehouse_id)
     warehouse.prospecting_category = "other"
     draft.send_state, draft.scheduled_at = "planned", FUTURE
     draft.validated_at, draft.human_validated = None, False
@@ -655,6 +655,6 @@ def test_a_new_validation_lifts_a_former_holders_block_but_never_an_opposition(
         return
     ok(response)
     db_session.expire_all()
-    found = db_session.get(WarehouseDraft, draft.id)
+    found = db_session.get_one(WarehouseDraft, draft.id)
     assert found.send_state == "scheduled"
     assert warehouse_addresses.refusal(db_session, found) is None

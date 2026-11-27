@@ -8,7 +8,7 @@ counters are one aggregate statement (`count(*) FILTER (WHERE …)` per segment)
 
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from enum import StrEnum
 from typing import Any, Literal
@@ -58,7 +58,7 @@ from app.models.enums import (
 from app.models.imports import ImportBatch, ImportRowMetadata
 from app.repositories.filter_conditions import NONE, any_ref, company_conditions, department_of
 from app.repositories.taxonomies import label_key
-from app.services import eligibility
+from app.services import eligibility, email_identity
 from app.services.contact_sequences import (
     email_error_sql,
     finished_sql,
@@ -430,10 +430,16 @@ def _order_by(sort: ProspectSort) -> list[SQLColumnExpression[Any]]:
 # --- service -----------------------------------------------------------------------------------
 
 
+def identity_aware(session: Session, context: SegmentContext) -> SegmentContext:
+    """The context of a read that classifies files: a doubtful address is not a verified one."""
+    return replace(context, doubtful=email_identity.whole_base(session).email_ids)
+
+
 def count_segments(
     session: Session, filters: ProspectFilters, context: SegmentContext
 ) -> SegmentCounts:
     """Every segment's size under `filters`, in one aggregate query."""
+    context = identity_aware(session, context)
     statement = join_segment_sources(
         select(
             *segment_counts(context, hide_ignored=not filters.include_ignored),
@@ -571,6 +577,7 @@ def list_prospects(
     offset: int = 0,
 ) -> ProspectPage:
     """One page of the prospects in `segment` under `filters`, and their total."""
+    context = identity_aware(session, context)
     limit = max(1, min(limit, LIST_MAX_LIMIT))
     offset = max(0, offset)
     where = [*filter_conditions(filters), predicate(segment, context)]

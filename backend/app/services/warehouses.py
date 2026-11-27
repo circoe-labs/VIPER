@@ -25,6 +25,7 @@ from app.services.errors import ConflictError, InvalidFieldError, NotFoundError
 from app.services.file_status import (
     FileStatus,
     missing_of,
+    reading_context,
     status_of,
     warehouse_missing,
     warehouse_status_condition,
@@ -124,7 +125,7 @@ def present(session: Session, row: Warehouse) -> WarehouseOut:
 
 def present_many(session: Session, rows: Sequence[Warehouse]) -> list[WarehouseOut]:
     """The rows with their computed status and company, in one query."""
-    usable, verified = warehouse_missing()
+    usable, verified = warehouse_missing(reading_context(session))
     extras = {
         found[0]: found
         for found in session.execute(
@@ -191,7 +192,10 @@ def list_warehouses(
             choices.append(Warehouse.prospecting_category.is_(None))
         conditions.append(or_(*choices))
     if statuses:
-        conditions.append(or_(*(warehouse_status_condition(status) for status in statuses)))
+        context = reading_context(session)
+        conditions.append(
+            or_(*(warehouse_status_condition(status, context) for status in statuses))
+        )
     if departments:
         conditions.append(department_of(Warehouse.postal_code).in_(departments))
     conditions.extend(created_between(Warehouse.created_at, created_from, created_to))

@@ -40,9 +40,9 @@ const REFUSALS: Record<string, string> = {
 }
 
 // A mail that left although VIPER does not know it, where the sheet cannot say so: beyond R2 (the sequence stops
-// there), or still locked in a former contact week.
+// there), or of a former contact week.
 const recordable = (item: UnsentItem) =>
-  (item.send.rank > MAX_RANK && (item.kind === 'doubt' || item.kind === 'unconfirmed')) || (!item.current && item.kind === 'unconfirmed')
+  (item.send.rank > MAX_RANK || !item.current) && (item.kind === 'doubt' || item.kind === 'unconfirmed')
 
 function resultText(done: string, result: RecoveryResult, items: UnsentItem[]): string {
   const parts = [done]

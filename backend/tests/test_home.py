@@ -19,7 +19,7 @@ from app.models.enums import (
     SendSource,
     TrackingHistoryStatus,
 )
-from app.services import audit, contact_messages, home
+from app.services import audit, contact_messages, email_identity, home
 from app.services import prospects as prospect_service
 from app.services.audit import AuditContext, AuditSource
 from app.services.contact_sequences import change_cohort
@@ -519,14 +519,16 @@ def test_statement_count_does_not_grow_with_rows(db_session: Session, size: int)
         prospect.exact_job_title = "Poste modifié"
     db_session.flush()
     db_session.expunge_all()
+    # Assessed once, then only its fingerprint is read (`email_identity.whole_base`).
+    email_identity.whole_base(db_session)
 
     with statements(db_session) as executed:
         home_summary(db_session, CONTEXT)
 
     # Segments, companies, the card figures, months (contacts, appointments), the week's Contact
     # planning, 3 action
-    # groups, imports, edits, subject names; the segments, the months, the planning and the
+    # groups, imports, edits, subject names, the identity fingerprint; the segments, the months, the planning and the
     # action groups inside `whole_base_plan` (its settings, then their reset).
     settings = [index for index, statement in enumerate(executed) if "set_config" in statement]
-    assert len(executed) - len(settings) == 12
-    assert settings == [0, 2, 4, 6, 7, 10, 11, 13, 14, 18]
+    assert len(executed) - len(settings) == 13
+    assert settings == [1, 3, 5, 7, 8, 11, 12, 14, 15, 19]

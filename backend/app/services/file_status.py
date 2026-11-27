@@ -21,15 +21,18 @@ Anything else is *incomplete*: not to be used as it stands.
 """
 
 import uuid
+from datetime import UTC, datetime
 from typing import Literal
 
 from sqlalchemy import ColumnElement, Text, and_, case, cast, exists, func, null, or_, select
 from sqlalchemy.dialects.postgresql import JSONPATH, array
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import Session, aliased
 
 from app.models import Company, Establishment, Prospect, Warehouse
 from app.models.companies import company_activity_categories
+from app.services import email_identity
 from app.services.prospection.segments import (
+    SegmentContext,
     join_segment_sources,
     minimum_to_email,
     set_aside,
@@ -37,6 +40,14 @@ from app.services.prospection.segments import (
 
 FileStatus = Literal["verified", "usable", "incomplete"]
 FILE_STATUSES: tuple[FileStatus, ...] = ("verified", "usable", "incomplete")
+
+
+def reading_context(session: Session) -> SegmentContext:
+    """What a company's or warehouse's status reads beside the rows: the doubtful addresses (the
+    time-dependent fields play no part here)."""
+    return SegmentContext(
+        today=datetime.now(UTC).date(), doubtful=email_identity.whole_base(session).email_ids
+    )
 
 
 def _filled(column: ColumnElement[str] | ColumnElement[str | None]) -> ColumnElement[bool]:
@@ -54,17 +65,19 @@ def _missing(requirements: list[tuple[str, ColumnElement[bool]]]) -> ColumnEleme
     )
 
 
-def _usable_company_ids() -> ColumnElement[uuid.UUID]:
+def _usable_company_ids(context: SegmentContext) -> ColumnElement[uuid.UUID]:
     """Companies with at least one person who can be e-mailed (the prospect `usable` minimum)."""
     return (
         join_segment_sources(select(Prospect.company_id))
-        .where(Prospect.company_id.is_not(None), ~set_aside(), minimum_to_email())
+        .where(Prospect.company_id.is_not(None), ~set_aside(), minimum_to_email(context))
         .correlate(None)
         .scalar_subquery()
     )
 
 
-def company_missing() -> tuple[ColumnElement[list[str]], ColumnElement[list[str]]]:
+def company_missing(
+    context: SegmentContext,
+) -> tuple[ColumnElement[list[str]], ColumnElement[list[str]]]:
     """`(missing to be usable, missing to be verified)` for `Company` rows."""
     building = aliased(Establishment)
     site = exists().where(
@@ -79,7 +92,7 @@ def company_missing() -> tuple[ColumnElement[list[str]], ColumnElement[list[str]
             ("channel", or_(_filled(Company.website_url), _filled(Company.email_domain))),
             ("identity", or_(_filled(Company.siren), site)),
             ("kind", Company.company_kind.is_not(None)),
-            ("person", Company.id.in_(_usable_company_ids())),
+            ("person", Company.id.in_(_usable_company_ids(context))),
         ]
     )
     verified = _missing(
@@ -98,8 +111,8 @@ def _is_empty(array_expression: ColumnElement[list[str]]) -> ColumnElement[bool]
     return func.coalesce(func.cardinality(array_expression), 0) == 0
 
 
-def company_status_condition(status: FileStatus) -> ColumnElement[bool]:
-    usable, verified = company_missing()
+def company_status_condition(status: FileStatus, context: SegmentContext) -> ColumnElement[bool]:
+    usable, verified = company_missing(context)
     return status_condition(status, usable, verified)
 
 
@@ -115,9 +128,9 @@ def status_condition(
     return and_(_is_empty(usable), _is_empty(verified))
 
 
-def usable_establishment_ids() -> ColumnElement[uuid.UUID]:
+def usable_establishment_ids(context: SegmentContext) -> ColumnElement[uuid.UUID]:
     """Buildings that belong to a usable company."""
-    usable, _ = company_missing()
+    usable, _ = company_missing(context)
     return (
         select(Establishment.id)
         .join(Company, Company.id == Establishment.company_id)
@@ -127,7 +140,9 @@ def usable_establishment_ids() -> ColumnElement[uuid.UUID]:
     )
 
 
-def warehouse_missing() -> tuple[ColumnElement[list[str]], ColumnElement[list[str]]]:
+def warehouse_missing(
+    context: SegmentContext,
+) -> tuple[ColumnElement[list[str]], ColumnElement[list[str]]]:
     """`(missing to be usable, missing to be verified)` for `Warehouse` rows."""
     reachable_contact = func.jsonb_path_exists(
         Warehouse.contacts,
@@ -142,7 +157,7 @@ def warehouse_missing() -> tuple[ColumnElement[list[str]], ColumnElement[list[st
                 "company",
                 and_(
                     Warehouse.establishment_id.is_not(None),
-                    Warehouse.establishment_id.in_(usable_establishment_ids()),
+                    Warehouse.establishment_id.in_(usable_establishment_ids(context)),
                 ),
             ),
         ]
@@ -163,8 +178,8 @@ def warehouse_missing() -> tuple[ColumnElement[list[str]], ColumnElement[list[st
     return usable, verified
 
 
-def warehouse_status_condition(status: FileStatus) -> ColumnElement[bool]:
-    usable, verified = warehouse_missing()
+def warehouse_status_condition(status: FileStatus, context: SegmentContext) -> ColumnElement[bool]:
+    usable, verified = warehouse_missing(context)
     return status_condition(status, usable, verified)
 
 

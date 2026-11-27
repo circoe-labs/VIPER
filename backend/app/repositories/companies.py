@@ -17,7 +17,12 @@ from app.repositories.filter_conditions import company_conditions
 from app.repositories.list_sort import EntitySort, entity_order_by
 from app.repositories.taxonomies import matches_words
 from app.services import eligibility
-from app.services.file_status import FileStatus, company_missing, company_status_condition
+from app.services.file_status import (
+    FileStatus,
+    company_missing,
+    company_status_condition,
+    reading_context,
+)
 
 
 def get_company(session: Session, company_id: uuid.UUID) -> Company | None:
@@ -173,9 +178,10 @@ def list_companies(
     )
     if not include_archived:
         where.append(~eligibility.company_archived_sql(Company.id))
+    context = reading_context(session)
     if statuses:
-        where.append(or_(*(company_status_condition(status) for status in statuses)))
-    usable_missing, verified_missing = company_missing()
+        where.append(or_(*(company_status_condition(status, context) for status in statuses)))
+    usable_missing, verified_missing = company_missing(context)
     establishment_count = (
         select(func.count()).where(Establishment.company_id == Company.id).scalar_subquery()
     )

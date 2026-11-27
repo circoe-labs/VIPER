@@ -88,7 +88,7 @@ describe('Contact › Envois à reprendre', () => {
     const [confirmed] = sent(api.requests, 'POST', '/api/contact/unsent/confirm-not-sent')
     expect(confirmed?.body).toEqual({ items: [{ message_id: 'message-p2', expected_revision: 1 }] })
   })
-  it('keeps two mails of one step apart, and records an existing R3 as sent', async () => {
+  it('keeps two mails of one step apart, and records what no sheet can mark as sent', async () => {
     const user = userEvent.setup()
     const old: UnsentItem = { ...item('p3', 'Double', 'send_not_confirmed', true), message_id: 'message-old', current: false, status: 'cancelled' }
     const now: UnsentItem = { ...item('p3', 'Double', 'send_not_confirmed', true), message_id: 'message-new' }
@@ -103,8 +103,8 @@ describe('Contact › Envois à reprendre', () => {
     await user.click(first)
     expect(second).not.toBeChecked()
 
-    // Only the R3 offers it: the others are marked on their sheet.
-    expect(panel.getAllByRole('button', { name: /^Marquer comme envoyé/ })).toHaveLength(1)
+    // The former week's mail and the R3 offer it: the current one is marked on its sheet.
+    expect(panel.getAllByRole('button', { name: /^Marquer comme envoyé/ })).toHaveLength(2)
     await user.click(panel.getByRole('button', { name: /Marquer comme envoyé : Camille Ancienne · R3/ }))
     await user.click(within(screen.getByRole('dialog', { name: /comme envoyé/ })).getByRole('button', { name: 'Marquer envoyé' }))
     expect(await panel.findByText(/enregistré comme envoyé/)).toBeInTheDocument()

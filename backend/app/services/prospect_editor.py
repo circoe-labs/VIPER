@@ -26,7 +26,7 @@ Rules and wording: doc/features/prospect-editor.md.
 
 import hashlib
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, time
 from enum import StrEnum
@@ -360,12 +360,14 @@ def _local_parts(moment: datetime) -> tuple[date, time | None]:
     return local.date(), (None if at == time() else at)
 
 
-def _data_quality(prospect: Prospect, clock: EditorClock) -> DataQualityScore | None:
+def _data_quality(
+    prospect: Prospect, clock: EditorClock, doubtful: Collection[str]
+) -> DataQualityScore | None:
     """No score under durable opposition: the record is not worked on, the UI says « Écarté »."""
     if prospect.contactability_status is ContactabilityStatus.DO_NOT_CONTACT:
         return None
     config = replace(clock.data_quality, stale_days=clock.stale_days)
-    return data_quality_of(prospect, clock.now, config)
+    return data_quality_of(prospect, clock.now, config, doubtful)
 
 
 def _imported_unverified(channel: Email | Phone) -> bool:
@@ -533,7 +535,7 @@ def get_view(session: Session, prospect_id: uuid.UUID, clock: EditorClock) -> Pr
         today=clock.segments.today,
         stale_threshold_days=clock.stale_days,
         score=get_score(session, prospect.id, clock.score),
-        data_quality=_data_quality(prospect, clock),
+        data_quality=_data_quality(prospect, clock, {address for _, address in doubts}),
         created_at=prospect.created_at,
         updated_at=prospect.updated_at,
     )

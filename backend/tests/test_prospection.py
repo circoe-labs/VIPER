@@ -32,7 +32,7 @@ from app.models.enums import (
     SequenceEndReason,
     VerificationStatus,
 )
-from app.services import contact_dashboard, quality_alerts
+from app.services import contact_dashboard, email_identity, quality_alerts
 from app.services import prospects as prospect_service
 from app.services.prospection.query import (
     NONE,
@@ -705,15 +705,18 @@ def test_sort_orders(db_session: Session) -> None:
 def test_statement_count_does_not_grow_with_rows(db_session: Session, size: int) -> None:
     random_base(db_session, seed=11, size=size)
     db_session.expunge_all()
+    # Assessed once, then only its fingerprint is read (`email_identity.whole_base`).
+    email_identity.whole_base(db_session)
     with statements(db_session) as page_statements:
         page = list_prospects(db_session, ProspectFilters(), CONTEXT, limit=200)
     with statements(db_session) as counter_statements:
         count_segments(db_session, ProspectFilters(search="jean"), CONTEXT)
 
     assert len(page.items) == size
-    # The page, then its total; every counter in one aggregate — each inside `whole_base_plan`
-    # (its planner settings first, their reset last).
-    assert len(page_statements) == 4
-    assert len(counter_statements) == 3
-    assert all("set_config" in s for s in [*page_statements[::3], *counter_statements[::2]])
-    assert "FILTER (WHERE" in counter_statements[1]
+    # The identity fingerprint; then the page and its total, every counter in one aggregate — each
+    # inside `whole_base_plan` (its planner settings first, their reset last).
+    assert len(page_statements) == 5
+    assert len(counter_statements) == 4
+    around = [page_statements[1], page_statements[4], counter_statements[1], counter_statements[3]]
+    assert all("set_config" in s for s in around)
+    assert "FILTER (WHERE" in counter_statements[2]

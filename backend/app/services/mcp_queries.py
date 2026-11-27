@@ -38,6 +38,7 @@ from app.services.file_status import (
     FILE_STATUSES,
     company_missing,
     missing_of,
+    reading_context,
     status_condition,
     status_of,
     warehouse_missing,
@@ -209,7 +210,7 @@ def find_companies(
     offset: int = 0,
 ) -> dict[str, Any]:
     limit, offset = _page(limit, offset)
-    usable, verified = company_missing()
+    usable, verified = company_missing(reading_context(session))
     prospect_total = select(func.count()).where(Prospect.company_id == Company.id).scalar_subquery()
     establishment_total = (
         select(func.count()).where(Establishment.company_id == Company.id).scalar_subquery()
@@ -349,7 +350,7 @@ def find_warehouses(
     """`company_ids` / `company_names` name the owners (any of them); `without_company` is the
     opposite — warehouses linked to no building, so to no company."""
     limit, offset = _page(limit, offset)
-    usable, verified = warehouse_missing()
+    usable, verified = warehouse_missing(reading_context(session))
     where: list[ColumnElement[bool]] = []
     text = func.concat_ws(
         " ", Warehouse.name, Warehouse.owner_name, Warehouse.owner_role, Warehouse.city,
@@ -516,8 +517,8 @@ def find_prospects(
 
 def verification_overview(session: Session, context: SegmentContext) -> dict[str, dict[str, int]]:
     """How many companies, warehouses and people are verified / usable / incomplete."""
-    usable_c, verified_c = company_missing()
-    usable_w, verified_w = warehouse_missing()
+    usable_c, verified_c = company_missing(reading_context(session))
+    usable_w, verified_w = warehouse_missing(reading_context(session))
     counts: dict[str, dict[str, int]] = {"company": {}, "warehouse": {}, "prospect": {}}
     for state in FILE_STATUSES:
         counts["company"][state] = (

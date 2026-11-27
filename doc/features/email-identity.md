@@ -42,10 +42,20 @@ address is asked again, also if it later comes back.
 - Warehouse mails (preprogramming, validation, scheduling, recovery, dispatch): doubtful when the
   address plainly names someone else than the warehouse contact, or is doubtful for every prospect
   holding it.
+- File status: a doubtful address never counts as a verified e-mail, whatever its stored status: the
+  « État de la fiche » card (completeness and its score), the review (verified / usable /
+  incomplete) of the lists and counters, and the company and warehouse statuses that need a usable
+  person. The stored status, and the e-mail filters that read it, are unchanged.
 
 Unlike `eligibility`, nothing is cancelled: the block is about one address, not about the person,
 who stays in every list. `QualityAlert` does not own it: an alert is a stored opinion that a person
 resolves, while this flag must follow the data and exist without any write.
+
+## Cost
+
+Lists and counters read `whole_base`: the whole base is assessed again only when a row of
+`prospects`, `emails`, `companies` or `email_identity_confirmations` changed (one fingerprint
+statement says so). The warehouse list assesses its drafts in a handful of statements.
 
 ## Seeing them
 
